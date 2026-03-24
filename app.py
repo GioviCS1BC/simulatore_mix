@@ -261,13 +261,13 @@ st.markdown("Scopri l'equilibrio tra Rinnovabili, Batterie e Nucleare valutando 
 def mostra_spiegazione():
     st.markdown("""
     **Benvenuto nel Simulatore di Mix Energetico 1.0 di CS1BC!**
-
+    per smanettare coi parametri clicca le freccette in alto a sinistra e aggiorni il risultato della funzione obiettivo
     Cos'è CS1BC? è un collettivo strafigo! unbelclima.it
 
-    *per smanettare coi parametri clicca le freccette in alto a sinistra e aggiorni il risultato della funzione obiettivo*
     
-    *i dataset di produzione rinnovabile sono reali ma per ora puntuali e indicativi, 
-        nelle prossime versioni simuleremo una generazione distribuita*
+    ATTENZIONE!:
+    i dataset di produzione rinnovabile sono reali ora per ora ma per ora puntuali (presi in centro Italia), 
+        nelle prossime versioni simuleremo una generazione distribuita
     
     ### 🌿 Modello LCA (Life Cycle Assessment)
     Le emissioni sono calcolate sull'intero ciclo di vita (dati IPCC):
