@@ -229,7 +229,7 @@ def applica_economia_e_trova_ottimo(risultati_fisici, df_completo, mercato):
        
         
         # Base di costo: 15€/MWh 
-        costo_base_integrazione = 15.0 * (quota_vre ** 2)
+        costo_base_integrazione = mercato['costo_base_integrazione'] * (quota_vre ** 2)
         
         # SCONTO BATTERIE: 
         # Se le batterie coprono una buona fetta del fabbisogno, 
@@ -316,7 +316,12 @@ mercato = {
     'wacc_bess': st.sidebar.slider("WACC Batterie (%)", 0.0, 15.0, 5.0, step=0.5) / 100,
     'bess_opex_fix': st.sidebar.slider("Manutenzione Annua BESS (% del CAPEX)", 0.0, 5.0, 1.5, step=0.1) / 100,
     'bess_vita': 15,
-    'gas_eur_mwh': st.sidebar.slider("Prezzo Gas / Fossili (€/MWh)", 30.0, 300.0, 130.0, step=10.0),    
+    'gas_eur_mwh': st.sidebar.slider("Prezzo Gas / Fossili (€/MWh)", 30.0, 300.0, 130.0, step=10.0), 
+    'costo_base_integrazione': st.sidebar.slider(
+        "Costo Integrazione Rete (€/MWh)", 
+        0.0, 20.0, 10.0, 
+        help="Costo extra per bilanciamento e rete per gestire fotovoltaico ed eolico."
+    ),
     'voll': 3000.0
 }
 
