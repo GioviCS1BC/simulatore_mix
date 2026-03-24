@@ -210,7 +210,7 @@ def applica_economia_e_trova_ottimo(risultati_fisici, df_completo, mercato):
         emi_pv = (pv_mw * ore_eq_pv) * LCA_EMISSIONI['pv']
         emi_wind = (wind_mw * ore_eq_wind) * LCA_EMISSIONI['wind']
         emi_hydro = (hydro_fluente_tot_mwh + r['hydro_disp_mwh']) * LCA_EMISSIONI['hydro']
-        emi_nuc = (nuc_mw * 0.90 * 8760) * LCA_EMISSIONI['nuc']
+        emi_nuc = (nuc_mw * 1 * 8760) * LCA_EMISSIONI['nuc']
         emi_bess = r['bess_scarica_mwh'] * LCA_EMISSIONI['bess']
         emi_gas = r['gas_mwh'] * LCA_EMISSIONI['gas']
         
@@ -234,7 +234,7 @@ def applica_economia_e_trova_ottimo(risultati_fisici, df_completo, mercato):
 # ==========================================
 # 4. INTERFACCIA UTENTE (STREAMLIT)
 # ==========================================
-st.title("⚡ Ottimizzatore Mix Energetico e Decarbonizzazione (LCA)")
+st.title("⚡ Ottimizzatore Mix Energetico e Decarbonizzazione (BETA)")
 st.markdown("Scopri l'equilibrio tra Rinnovabili, Batterie e Nucleare valutando le emissioni dell'intero ciclo di vita.")
 
 @st.dialog("📖 Come funziona questo simulatore?")
@@ -246,7 +246,7 @@ def mostra_spiegazione():
 
     *per smanettare coi parametri clicca le freccette in alto a sinistra e aggiorni il risultato della funzione obiettivo*
     
-        *i dataset di produzione rinnovabile sono reali ma per ora puntuali e indicativi, 
+    *i dataset di produzione rinnovabile sono reali ma per ora puntuali e indicativi, 
         nelle prossime versioni simuleremo una generazione distribuita*
     
     ### 🌿 Modello LCA (Life Cycle Assessment)
@@ -258,7 +258,7 @@ def mostra_spiegazione():
     - **Batterie:** 50 gCO₂/kWh (per energia erogata)
     - **Gas Naturale:** 550 gCO₂/kWh
     *Si tratta di una Beta vibecodata, se vuoi darmi una mano a svilupparla scrivi a giovanni at unbelclima punto it*
-    **app: https://github.com/GioviCS1BC/simulatore_mix/
+    *guarda il modello su: https://github.com/GioviCS1BC/simulatore_mix/ *
     """)
 
 col_vuota, col_bottone = st.columns([4, 1])
@@ -268,8 +268,8 @@ with col_bottone:
 
 st.sidebar.header("⚙️ Parametri di Mercato")
 mercato = {
-    'cfd_pv': st.sidebar.slider("CfD Fotovoltaico (€/MWh)", 20.0, 150.0, 50.0, step=5.0),
-    'cfd_wind': st.sidebar.slider("CfD Eolico (€/MWh)", 30.0, 150.0, 70.0, step=5.0),
+    'cfd_pv': st.sidebar.slider("CfD Fotovoltaico (€/MWh)", 20.0, 150.0, 60.0, step=5.0),
+    'cfd_wind': st.sidebar.slider("CfD Eolico (€/MWh)", 30.0, 150.0, 80.0, step=5.0),
     'cfd_nuc': st.sidebar.slider("CfD Nucleare (€/MWh)", 50.0, 200.0, 120.0, step=5.0),
     'bess_capex': st.sidebar.slider("CAPEX Batterie (€/MWh installato)", 50000.0, 300000.0, 100000.0, step=10000.0),
     'gas_eur_mwh': st.sidebar.slider("Prezzo Gas / Fossili (€/MWh)", 30.0, 300.0, 130.0, step=10.0),
