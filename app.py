@@ -256,7 +256,7 @@ def applica_economia_e_trova_ottimo(risultati_fisici, df_completo, mercato):
         emi_gas = r['gas_mwh'] * LCA_EMISSIONI['gas']
         
         carbon_intensity = (emi_pv + emi_wind + emi_hydro + emi_nuc + emi_bess + emi_gas) / fabbisogno_tot_mwh
-        
+        percentuale_gas = (mwh_gas_totali / fabbisogno_tot_mwh) * 100
         config = {
             'Configurazione': f"{r['PV_GW']}PV|{r['Wind_GW']}W|{r['BESS_GWh']}B|{r['Nuc_GW']}N",
             'PV_GW': r['PV_GW'], 'Wind_GW': r['Wind_GW'], 'BESS_GWh': r['BESS_GWh'], 'Nuc_GW': r['Nuc_GW'],
