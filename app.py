@@ -163,10 +163,10 @@ def calcola_costo_bolletta(pv_mw, wind_mw, nucleare_mw, bess_mwh, gas_mwh_annuo,
     return totale / fabbisogno_tot_mwh
 
 def ottimizza_sistema(df_completo, mercato):
-    scenari_pv_gw = [0, 50, 100, 150]
-    scenari_wind_gw = [0, 30, 60, 90]
-    scenari_bess_gwh = [0, 50, 150, 300]
-    scenari_nuc_gw = [0, 20, 40, 60]
+    scenari_pv_gw = [40, 50, 60, 100, 150]
+    scenari_wind_gw = [10, 20, 30, 60, 90]
+    scenari_bess_gwh = [0, 20, 50, 150, 300,500]
+    scenari_nuc_gw = [0,5,10, 20, 40, 60]
     
     GAS_CAPACITA_FISSA_MW = 50000  
     BESS_POTENZA_FISSA_MW = 50000  
