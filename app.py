@@ -226,11 +226,19 @@ def applica_economia_e_trova_ottimo(risultati_fisici, df_completo, mercato):
         energia_vre_totale = (pv_mw * ore_eq_pv) + (wind_mw * ore_eq_wind)
         quota_vre = energia_vre_totale / fabbisogno_tot_mwh
         
-        # --- COSTI DI SISTEMA (Rete, Bilanciamento, Inerzia) ---
-        # Più aumenta la quota VRE, più Terna deve spendere per tenere la rete stabile.
-        # Usiamo una funzione quadratica: 0€ al 0%, ~25€/MWh al 100% di penetrazione.
-        costo_unitario_integrazione = 25.0 * (quota_vre ** 2) 
-        costo_sistema_totale = energia_vre_totale * costo_unitario_integrazione
+       
+        
+        # Base di costo: 15€/MWh 
+        costo_base_integrazione = 15.0 * (quota_vre ** 2)
+        
+        # SCONTO BATTERIE: 
+        # Se le batterie coprono una buona fetta del fabbisogno, 
+        # riduciamo il costo di integrazione fino al 50%.
+        capacita_relativa_bess = (r['BESS_GWh'] * 1000) / (fabbisogno_tot_mwh / 8760) # Rapporto GWh/Potenza Media
+        sconto_bess = min(0.5, capacita_relativa_bess / 10.0) # Lo sconto cresce con le batterie
+        
+        costo_unitario_finale = costo_base_integrazione * (1 - sconto_bess)
+        costo_sistema_totale = energia_vre_totale * costo_unitario_finale
         
         # --- CALCOLO FINALE BOLLETTA ---
         # Sommiamo il nuovo costo di sistema al numeratore
