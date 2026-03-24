@@ -222,10 +222,23 @@ def applica_economia_e_trova_ottimo(risultati_fisici, df_completo, mercato):
         
         costo_gas = r['gas_mwh'] * mercato['gas_eur_mwh']
         costo_blackout = r['deficit_mwh'] * mercato['voll']
+        # --- CALCOLO PENETRAZIONE RINNOVABILI (VRE) ---
+        energia_vre_totale = (pv_mw * ore_eq_pv) + (wind_mw * ore_eq_wind)
+        quota_vre = energia_vre_totale / fabbisogno_tot_mwh
         
-        # Totale Bolletta
-        costo_bolletta = (costo_pv + costo_wind + costo_hydro + costo_nuc + costo_bess + costo_gas + costo_blackout) / fabbisogno_tot_mwh
+        # --- COSTI DI SISTEMA (Rete, Bilanciamento, Inerzia) ---
+        # Più aumenta la quota VRE, più Terna deve spendere per tenere la rete stabile.
+        # Usiamo una funzione quadratica: 0€ al 0%, ~25€/MWh al 100% di penetrazione.
+        costo_unitario_integrazione = 25.0 * (quota_vre ** 2) 
+        costo_sistema_totale = energia_vre_totale * costo_unitario_integrazione
         
+        # --- CALCOLO FINALE BOLLETTA ---
+        # Sommiamo il nuovo costo di sistema al numeratore
+        costo_bolletta = (
+            costo_pv + costo_wind + costo_hydro + costo_nuc + 
+            costo_bess + costo_gas + costo_blackout + 
+            costo_sistema_totale  # <--- AGGIUNTO QUI
+        ) / fabbisogno_tot_mwh
         # --- EMISSIONI LCA ---
         emi_pv = (pv_mw * ore_eq_pv) * LCA_EMISSIONI['pv']
         emi_wind = (wind_mw * ore_eq_wind) * LCA_EMISSIONI['wind']
