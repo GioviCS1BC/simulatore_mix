@@ -240,8 +240,14 @@ st.markdown("Scopri l'equilibrio tra Rinnovabili, Batterie e Nucleare valutando 
 @st.dialog("📖 Come funziona questo simulatore?")
 def mostra_spiegazione():
     st.markdown("""
-    **Benvenuto nel Simulatore di Mix Energetico 1.0!**
-    *Si tratta di una Beta vibecodata, se vuoi darmi una mano a svilupparla scrivi a giovanni at unbelclima punto it*
+    **Benvenuto nel Simulatore di Mix Energetico 1.0 di CS1BC!**
+
+    Cos'è CS1BC? è un collettivo strafigo! unbelclima.it
+
+    *per smanettare coi parametri clicca le freccette in alto a sinistra e aggiorni il risultato della funzione obiettivo*
+    
+        *i dataset di produzione rinnovabile sono reali ma per ora puntuali e indicativi, 
+        nelle prossime versioni simuleremo una generazione distribuita*
     
     ### 🌿 Modello LCA (Life Cycle Assessment)
     Le emissioni sono calcolate sull'intero ciclo di vita (dati IPCC):
@@ -251,7 +257,7 @@ def mostra_spiegazione():
     - **Nucleare:** 12 gCO₂/kWh
     - **Batterie:** 50 gCO₂/kWh (per energia erogata)
     - **Gas Naturale:** 550 gCO₂/kWh
-
+    *Si tratta di una Beta vibecodata, se vuoi darmi una mano a svilupparla scrivi a giovanni at unbelclima punto it*
     **app: https://github.com/GioviCS1BC/simulatore_mix/
     """)
 
