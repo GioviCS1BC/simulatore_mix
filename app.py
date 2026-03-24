@@ -143,10 +143,10 @@ def simula_rete_light_fast(produzione_pv, produzione_wind, fabbisogno,
 # L'underscore '_' davanti a _df_completo dice a Streamlit di NON consumare RAM per analizzarlo!
 @st.cache_data
 def simula_tutti_scenari_fisici(_df_completo):
-    scenari_pv_gw = [40, 50, 100, 150]
-    scenari_wind_gw = [10, 30, 60, 90]
-    scenari_bess_gwh = [10, 50, 150, 300]
-    scenari_nuc_gw = [0, 5, 10, 20, 30]
+    scenari_pv_gw = [40, 50, 80, 100, 150]
+    scenari_wind_gw = [10, 20, 30, 60, 90]
+    scenari_bess_gwh = [10, 30, 50, 150, 300]
+    scenari_nuc_gw = [0, 5, 10, 15, 20, 25, 30]
     
     GAS_CAPACITA_FISSA_MW = 50000  
     BESS_POTENZA_FISSA_MW = 50000  
@@ -251,6 +251,8 @@ def mostra_spiegazione():
     - **Nucleare:** 12 gCO₂/kWh
     - **Batterie:** 50 gCO₂/kWh (per energia erogata)
     - **Gas Naturale:** 550 gCO₂/kWh
+
+    **app: https://github.com/GioviCS1BC/simulatore_mix/
     """)
 
 col_vuota, col_bottone = st.columns([4, 1])
