@@ -261,6 +261,7 @@ def applica_economia_e_trova_ottimo(risultati_fisici, df_completo, mercato):
             'Configurazione': f"{r['PV_GW']}PV|{r['Wind_GW']}W|{r['BESS_GWh']}B|{r['Nuc_GW']}N",
             'PV_GW': r['PV_GW'], 'Wind_GW': r['Wind_GW'], 'BESS_GWh': r['BESS_GWh'], 'Nuc_GW': r['Nuc_GW'],
             'Costo_Bolletta': costo_bolletta,
+            'Gas_%': percentuale_gas,  
             'Carbon_Intensity': carbon_intensity,
             'Overgen_TWh': r['overgen_mwh'] / 1e6
         }
