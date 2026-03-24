@@ -241,7 +241,36 @@ def ottimizza_sistema(df_completo, mercato):
 # ==========================================
 st.title("⚡ Ottimizzatore Mix Energetico e Decarbonizzazione (Idro Dinamico)")
 st.markdown("Scopri l'equilibrio tra Rinnovabili, Batterie e Nucleare per tagliare costi e CO₂.")
+# --- POP-UP INFORMATIVO ---
+@st.dialog("📖 Come funziona questo simulatore?")
+def mostra_spiegazione():
+    st.markdown("""
+    **Benvenuto nel Simulatore di Mix Energetico 1.0!**
 
+    *Si tratta di una Beta vibecodata, se vuoi darmi una mano a svilupparla scrivi a giovanni at unbelclima punto it
+    
+    Questo tool calcola l'Ottimo di Pareto tra costi in bolletta ed emissioni di CO₂, 
+    simula la rete elettrica ora per ora (8760 ore annue) 
+    per ora si basa su dati reali di produzione fotovoltaica del 2023 ed eolica del 2019
+    i consumi invece sono quelli del 2025
+    
+    ### 🔍 Cosa succede dietro le quinte?
+    1. **Fonti Rigide:** Il modello fa produrre al massimo il Nucleare e l'Idroelettrico ad acqua fluente.
+    2. **Rinnovabili Variabili:** Aggiunge la produzione di Eolico e Fotovoltaico basata sul meteo reale.
+    3. **Flessibilità:** Se c'è un surplus, l'energia carica le Batterie. Se c'è un deficit, 
+       le Batterie si scaricano per prime. Se non bastano, si aprono le Dighe Idroelettriche.
+    4. **Ultima spiaggia:** Solo se tutte le fonti pulite sono esaurite, si accende il Gas Naturale (che emette CO₂).
+    
+    ### 💡 Suggerimento per l'uso
+    Usa la barra laterale per stressare il sistema: abbassa il costo del nucleare o alza quello del gas per vedere 
+    come la matematica sposta l'investimento verso il baseload o verso le batterie!
+    """)
+
+# Bottone per aprire il pop-up (lo mettiamo in alto a destra o nella sidebar)
+col_vuota, col_bottone = st.columns([4, 1])
+with col_bottone:
+    if st.button("ℹ️ Info / Istruzioni"):
+        mostra_spiegazione()
 st.sidebar.header("⚙️ Parametri di Mercato")
 mercato = {
     'cfd_pv': st.sidebar.slider("CfD Fotovoltaico (€/MWh)", 20.0, 150.0, 50.0, step=5.0),
