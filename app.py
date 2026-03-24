@@ -200,7 +200,7 @@ def applica_economia_e_trova_ottimo(risultati_fisici, df_completo, mercato):
         costo_pv = (pv_mw * ore_eq_pv) * mercato['cfd_pv']
         costo_wind = (wind_mw * ore_eq_wind) * mercato['cfd_wind']
         costo_hydro = (hydro_fluente_tot_mwh + r['hydro_disp_mwh']) * mercato['gas_eur_mwh'] 
-        costo_nuc = (nuc_mw * 0.90 * 8760) * mercato['cfd_nuc']
+        costo_nuc = (nuc_mw * 1 * 8760) * mercato['cfd_nuc']
         costo_bess = (bess_mwh * mercato['bess_capex']) / mercato['bess_vita']
         costo_gas = r['gas_mwh'] * mercato['gas_eur_mwh']
         costo_blackout = r['deficit_mwh'] * mercato['voll']
