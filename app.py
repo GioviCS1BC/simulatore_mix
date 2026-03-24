@@ -2,7 +2,8 @@ import os
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
+import plotly.express as px
+import plotly.graph_objects as go
 from numba import njit
 
 # ==========================================
@@ -137,16 +138,15 @@ def simula_rete_light_fast(produzione_pv, produzione_wind, fabbisogno,
     return gas_usato_totale, deficit_totale, overgen_totale, hydro_dispatched_totale, bess_scarica_totale
 
 # ==========================================
-# 3. MOTORE DI CALCOLO SEPARATO (NOVITA')
+# 3. MOTORE DI CALCOLO SEPARATO (Cache ottimizzata)
 # ==========================================
-
-# Calcoliamo la FISICA una volta sola e la teniamo in Cache (risparmia l'80% di RAM!)
+# L'underscore '_' davanti a _df_completo dice a Streamlit di NON consumare RAM per analizzarlo!
 @st.cache_data
-def simula_tutti_scenari_fisici(df_completo):
+def simula_tutti_scenari_fisici(_df_completo):
     scenari_pv_gw = [40, 50, 100, 150]
     scenari_wind_gw = [10, 30, 60, 90]
-    scenari_bess_gwh = [10, 20, 50, 150, 300]
-    scenari_nuc_gw = [0,2,5,10, 20, 40]
+    scenari_bess_gwh = [10, 50, 150, 300]
+    scenari_nuc_gw = [0, 5, 10, 20, 30]
     
     GAS_CAPACITA_FISSA_MW = 50000  
     BESS_POTENZA_FISSA_MW = 50000  
@@ -155,13 +155,12 @@ def simula_tutti_scenari_fisici(df_completo):
     HYDRO_BACINO_MAX_MWH = 5000000.0 
     HYDRO_INFLOW_MW = 2850.0 
     
-    array_pv = df_completo['Fattore_Capacita_PV'].values
-    array_wind = df_completo['Fattore_Capacita_Wind'].values
-    array_fabbisogno = df_completo['Fabbisogno_MW'].values
+    array_pv = _df_completo['Fattore_Capacita_PV'].values
+    array_wind = _df_completo['Fattore_Capacita_Wind'].values
+    array_fabbisogno = _df_completo['Fabbisogno_MW'].values
     
     risultati_fisici = []
     
-    # Questo ciclo pesante girerà UNA SOLA VOLTA quando si apre l'app
     for pv in scenari_pv_gw:
         for wind in scenari_wind_gw:
             for bess in scenari_bess_gwh:
@@ -180,7 +179,6 @@ def simula_tutti_scenari_fisici(df_completo):
                     
     return risultati_fisici
 
-# Calcoliamo l'ECONOMIA (Istanteo ad ogni spostamento del cursore)
 def applica_economia_e_trova_ottimo(risultati_fisici, df_completo, mercato):
     fabbisogno_tot_mwh = df_completo['Fabbisogno_MW'].sum()
     ore_eq_pv = df_completo['Fattore_Capacita_PV'].sum()
@@ -199,7 +197,6 @@ def applica_economia_e_trova_ottimo(risultati_fisici, df_completo, mercato):
         nuc_mw = r['Nuc_GW'] * 1000.0
         bess_mwh = r['BESS_GWh'] * 1000.0
         
-        # Bolletta
         costo_pv = (pv_mw * ore_eq_pv) * mercato['cfd_pv']
         costo_wind = (wind_mw * ore_eq_wind) * mercato['cfd_wind']
         costo_hydro = (hydro_fluente_tot_mwh + r['hydro_disp_mwh']) * mercato['gas_eur_mwh'] 
@@ -210,7 +207,6 @@ def applica_economia_e_trova_ottimo(risultati_fisici, df_completo, mercato):
         
         costo_bolletta = (costo_pv + costo_wind + costo_hydro + costo_nuc + costo_bess + costo_gas + costo_blackout) / fabbisogno_tot_mwh
         
-        # Emissioni
         emi_pv = (pv_mw * ore_eq_pv) * LCA_EMISSIONI['pv']
         emi_wind = (wind_mw * ore_eq_wind) * LCA_EMISSIONI['wind']
         emi_hydro = (hydro_fluente_tot_mwh + r['hydro_disp_mwh']) * LCA_EMISSIONI['hydro']
@@ -247,7 +243,6 @@ def mostra_spiegazione():
     **Benvenuto nel Simulatore di Mix Energetico 1.0!**
     *Si tratta di una Beta vibecodata, se vuoi darmi una mano a svilupparla scrivi a giovanni at unbelclima punto it*
     
-    qui trovi il modello:https://github.com/GioviCS1BC/simulatore_mix
     ### 🌿 Modello LCA (Life Cycle Assessment)
     Le emissioni sono calcolate sull'intero ciclo di vita (dati IPCC):
     - **Fotovoltaico:** 45 gCO₂/kWh
@@ -280,14 +275,11 @@ try:
     file_gme = os.path.join(cartella_script, "gme.xlsx")
     file_wind = os.path.join(cartella_script, "wind.csv")
     
-    # 1. Carica Dati (Eseguito 1 volta)
     df_completo = carica_dati(file_pvgis, file_gme, file_wind)
     
-    # 2. Simula Fisica (Eseguito 1 volta grazie alla Cache!)
-    with st.spinner("Calcolo degli scenari fisici in corso... (Solo la prima volta)"):
+    with st.spinner("Calcolo della rete elettrica... (Solo al primo avvio)"):
         risultati_fisici = simula_tutti_scenari_fisici(df_completo)
     
-    # 3. Calcola Economia (Istantaneo al variare dei cursori)
     miglior_config, df_plot = applica_economia_e_trova_ottimo(risultati_fisici, df_completo, mercato)
     
     st.subheader("🏆 Il Miglior Compromesso (Ottimo Economico)")
@@ -299,28 +291,37 @@ try:
     
     st.markdown(f"**Mix Impianti:** {miglior_config['PV_GW']} GW Solare | {miglior_config['Wind_GW']} GW Eolico | **Spreco Rete:** {miglior_config['Overgen_TWh']:.1f} TWh/anno")
     
-    st.subheader("📊 Frontiera di Pareto: Costi vs Emissioni")
-    fig, ax = plt.subplots(figsize=(10, 6))
+    st.subheader("📊 Frontiera di Pareto: Costi vs Emissioni (Interattivo!)")
     
-    scatter = ax.scatter(df_plot['Carbon_Intensity'], df_plot['Costo_Bolletta'], 
-                         c=df_plot['Nuc_GW'], cmap='plasma', s=100, alpha=0.8, edgecolors='black')
+    # --- IL NUOVO GRAFICO PLOTLY (Zero RAM, 100% Interattivo) ---
+    fig = px.scatter(
+        df_plot, 
+        x='Carbon_Intensity', 
+        y='Costo_Bolletta', 
+        color='Nuc_GW',
+        color_continuous_scale='Plasma',
+        hover_data=['PV_GW', 'Wind_GW', 'BESS_GWh'], # Mostra questi dati se passi il mouse!
+        labels={
+            'Carbon_Intensity': "Carbon Intensity Media LCA (gCO₂/kWh)",
+            'Costo_Bolletta': "Costo Medio in Bolletta (€/MWh)",
+            'Nuc_GW': "Nucleare (GW)"
+        }
+    )
     
-    ax.scatter(miglior_config['Carbon_Intensity'], miglior_config['Costo_Bolletta'], 
-               facecolors='none', edgecolors='lime', s=300, linewidth=3, label="Miglior Mix Economico")
+    # Aggiungiamo il cerchio verde per l'ottimo economico
+    fig.add_trace(go.Scatter(
+        x=[miglior_config['Carbon_Intensity']],
+        y=[miglior_config['Costo_Bolletta']],
+        mode='markers',
+        marker=dict(color='lime', size=15, line=dict(color='black', width=2)),
+        name='Miglior Mix',
+        hoverinfo='skip'
+    ))
 
-    ax.set_xlabel("Carbon Intensity Media LCA (gCO₂ / kWh)")
-    ax.set_ylabel("Costo Medio in Bolletta (€ / MWh)")
-    ax.invert_xaxis() 
+    fig.update_layout(xaxis_autorange="reversed", height=600)
     
-    cbar = plt.colorbar(scatter)
-    cbar.set_label('Capacità Nucleare Installata (GW)')
-    ax.legend()
-    ax.grid(True, linestyle='--', alpha=0.5)
-    
-    st.pyplot(fig)
-    
-    # LA RIGA CHE SALVA LA VITA AL SERVER: Chiude la figura per svuotare la RAM!
-    plt.close(fig)
+    # Renderizza il grafico in Streamlit
+    st.plotly_chart(fig, use_container_width=True)
 
 except FileNotFoundError:
     st.error("⚠️ File dati non trovati! Assicurati che i file `pvgis.csv`, `gme.xlsx` e `wind.csv` siano nel cloud.")
