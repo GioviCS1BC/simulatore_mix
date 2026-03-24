@@ -344,7 +344,7 @@ try:
         y=[miglior_config['Costo_Bolletta']],
         mode='markers',
         marker=dict(color='lime', size=15, line=dict(color='black', width=2)),
-        name='Miglior Mix',
+        name='Mix + Economico',
         hoverinfo='skip'
     ))
 
