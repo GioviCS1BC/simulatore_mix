@@ -188,18 +188,16 @@ def applica_economia_e_trova_ottimo(risultati_fisici, df_completo, mercato):
     LCA_EMISSIONI = {'pv': 45.0, 'wind': 11.0, 'hydro': 24.0, 'nuc': 12.0, 'bess': 50.0, 'gas': 550.0}
     
     # --- PARAMETRI FINANZIARI BESS ---
-    wacc = mercato.get('wacc_bess', 0.05)      # Default 5% se non presente
+    wacc = mercato.get('wacc_bess', 0.05)
     vita = mercato.get('bess_vita', 15)
-    opex_f_rate = mercato.get('bess_opex_fix', 0.015) # Default 1.5% del CAPEX/anno
+    opex_f_rate = mercato.get('bess_opex_fix', 0.015) 
     
-    # Calcolo del Fattore di Recupero del Capitale (Rata di ammortamento)
+    # Fattore di Recupero del Capitale (Ammortamento)
     if wacc > 0:
         crf = (wacc * (1 + wacc)**vita) / ((1 + wacc)**vita - 1)
     else:
         crf = 1 / vita
 
-    miglior_costo = float('inf')
-    miglior_config = None
     storia = []
     
     for r in risultati_fisici:
@@ -208,71 +206,69 @@ def applica_economia_e_trova_ottimo(risultati_fisici, df_completo, mercato):
         nuc_mw = r['Nuc_GW'] * 1000.0
         bess_mwh = r['BESS_GWh'] * 1000.0
         
-        # --- COSTI FONTI ---
+        # --- COSTI DIRETTI ---
         costo_pv = (pv_mw * ore_eq_pv) * mercato['cfd_pv']
         costo_wind = (wind_mw * ore_eq_wind) * mercato['cfd_wind']
         costo_hydro = (hydro_fluente_tot_mwh + r['hydro_disp_mwh']) * mercato['gas_eur_mwh'] 
         costo_nuc = (nuc_mw * 1 * 8760) * mercato['cfd_nuc']
         
-        # --- NUOVO CALCOLO COSTO BESS (Finanziario + Fisso) ---
+        # --- COSTO BESS (CAPEX + WACC + OPEX) ---
         capex_investimento = bess_mwh * mercato['bess_capex']
-        quota_ammortamento = capex_investimento * crf
-        quota_opex_fissa = capex_investimento * opex_f_rate
-        costo_bess = quota_ammortamento + quota_opex_fissa
+        costo_bess = (capex_investimento * crf) + (capex_investimento * opex_f_rate)
         
-        costo_gas = r['gas_mwh'] * mercato['gas_eur_mwh']
-        costo_blackout = r['deficit_mwh'] * mercato['voll']
-        # --- CALCOLO PENETRAZIONE RINNOVABILI (VRE) ---
+        # --- LCOS (Remunerazione Batteria) ---
+        lcos = costo_bess / r['bess_scarica_mwh'] if r['bess_scarica_mwh'] > 0 else 0.0
+        
+        # --- COSTI DI SISTEMA (Con Sconto Batterie) ---
         energia_vre_totale = (pv_mw * ore_eq_pv) + (wind_mw * ore_eq_wind)
         quota_vre = energia_vre_totale / fabbisogno_tot_mwh
         
-       
+        costo_base_integr = mercato['costo_base_integrazione'] * (quota_vre ** 2)
+        potenza_media_carico = fabbisogno_tot_mwh / 8760
+        rapporto_bess = (r['BESS_GWh'] * 1000) / potenza_media_carico
+        sconto_bess = min(0.5, rapporto_bess / 5.0) 
         
-        # Base di costo: 15€/MWh 
-        costo_base_integrazione = mercato['costo_base_integrazione'] * (quota_vre ** 2)
+        costo_sistema_totale = energia_vre_totale * (costo_base_integr * (1 - sconto_bess))
         
-        # SCONTO BATTERIE: 
-        # Se le batterie coprono una buona fetta del fabbisogno, 
-        # riduciamo il costo di integrazione fino al 50%.
-        capacita_relativa_bess = (r['BESS_GWh'] * 1000) / (fabbisogno_tot_mwh / 8760) # Rapporto GWh/Potenza Media
-        sconto_bess = min(0.5, capacita_relativa_bess / 10.0) # Lo sconto cresce con le batterie
+        # --- COSTI VARIABILI ---
+        costo_gas = r['gas_mwh'] * mercato['gas_eur_mwh']
+        costo_blackout = r['deficit_mwh'] * mercato['voll']
         
-        costo_unitario_finale = costo_base_integrazione * (1 - sconto_bess)
-        costo_sistema_totale = energia_vre_totale * costo_unitario_finale
+        # --- TOTALI ---
+        costo_bolletta = (costo_pv + costo_wind + costo_hydro + costo_nuc + costo_bess + costo_gas + costo_blackout + costo_sistema_totale) / fabbisogno_tot_mwh
+        percentuale_gas = (r['gas_mwh'] / fabbisogno_tot_mwh) * 100
         
-        # --- CALCOLO FINALE BOLLETTA ---
-        # Sommiamo il nuovo costo di sistema al numeratore
-        costo_bolletta = (
-            costo_pv + costo_wind + costo_hydro + costo_nuc + 
-            costo_bess + costo_gas + costo_blackout + 
-            costo_sistema_totale  # <--- AGGIUNTO QUI
-        ) / fabbisogno_tot_mwh
-        # --- EMISSIONI LCA ---
-        emi_pv = (pv_mw * ore_eq_pv) * LCA_EMISSIONI['pv']
-        emi_wind = (wind_mw * ore_eq_wind) * LCA_EMISSIONI['wind']
-        emi_hydro = (hydro_fluente_tot_mwh + r['hydro_disp_mwh']) * LCA_EMISSIONI['hydro']
-        emi_nuc = (nuc_mw * 1 * 8760) * LCA_EMISSIONI['nuc']
-        emi_bess = r['bess_scarica_mwh'] * LCA_EMISSIONI['bess']
-        emi_gas = r['gas_mwh'] * LCA_EMISSIONI['gas']
-        mwh_gas_totali = r['gas_mwh']
-        carbon_intensity = (emi_pv + emi_wind + emi_hydro + emi_nuc + emi_bess + emi_gas) / fabbisogno_tot_mwh
-        percentuale_gas = (mwh_gas_totali / fabbisogno_tot_mwh) * 100
-        config = {
+        # --- EMISSIONI ---
+        emi_tot = ( (pv_mw * ore_eq_pv) * LCA_EMISSIONI['pv'] +
+                    (wind_mw * ore_eq_wind) * LCA_EMISSIONI['wind'] +
+                    (hydro_fluente_tot_mwh + r['hydro_disp_mwh']) * LCA_EMISSIONI['hydro'] +
+                    (nuc_mw * 1 * 8760) * LCA_EMISSIONI['nuc'] +
+                    r['bess_scarica_mwh'] * LCA_EMISSIONI['bess'] +
+                    r['gas_mwh'] * LCA_EMISSIONI['gas'] )
+        carbon_intensity = emi_tot / fabbisogno_tot_mwh
+        
+        storia.append({
             'Configurazione': f"{r['PV_GW']}PV|{r['Wind_GW']}W|{r['BESS_GWh']}B|{r['Nuc_GW']}N",
             'PV_GW': r['PV_GW'], 'Wind_GW': r['Wind_GW'], 'BESS_GWh': r['BESS_GWh'], 'Nuc_GW': r['Nuc_GW'],
             'Costo_Bolletta': costo_bolletta,
-            'Gas_%': percentuale_gas,  
             'Carbon_Intensity': carbon_intensity,
+            'Gas_%': percentuale_gas,
+            'LCOS_BESS': lcos,
             'Overgen_TWh': r['overgen_mwh'] / 1e6
-        }
-        storia.append(config)
+        })
         
-        if costo_bolletta < miglior_costo:
-            miglior_costo = costo_bolletta
-            miglior_config = config
+    # --- SELEZIONE OTTIMO "GREEN BUDGET" ---
+    df_risultati = pd.DataFrame(storia)
+    
+    # Troviamo il minimo assoluto per definire il budget
+    min_costo = df_risultati['Costo_Bolletta'].min()
+    soglia_prezzo = min_costo * 1.05 # Tolleranza del 5%
+    
+    # Filtriamo gli scenari che rientrano nel budget e prendiamo il meno emissivo
+    scenari_ok = df_risultati[df_risultati['Costo_Bolletta'] <= soglia_prezzo]
+    miglior_config = scenari_ok.sort_values(by='Carbon_Intensity').iloc[0].to_dict()
             
-    return miglior_config, pd.DataFrame(storia)
-
+    return miglior_config, df_risultati
 # ==========================================
 # 4. INTERFACCIA UTENTE (STREAMLIT)
 # ==========================================
