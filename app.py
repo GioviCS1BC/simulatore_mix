@@ -187,6 +187,17 @@ def applica_economia_e_trova_ottimo(risultati_fisici, df_completo, mercato):
     
     LCA_EMISSIONI = {'pv': 45.0, 'wind': 11.0, 'hydro': 24.0, 'nuc': 12.0, 'bess': 50.0, 'gas': 550.0}
     
+    # --- PARAMETRI FINANZIARI BESS ---
+    wacc = mercato.get('wacc_bess', 0.05)      # Default 5% se non presente
+    vita = mercato.get('bess_vita', 15)
+    opex_f_rate = mercato.get('bess_opex_fix', 0.015) # Default 1.5% del CAPEX/anno
+    
+    # Calcolo del Fattore di Recupero del Capitale (Rata di ammortamento)
+    if wacc > 0:
+        crf = (wacc * (1 + wacc)**vita) / ((1 + wacc)**vita - 1)
+    else:
+        crf = 1 / vita
+
     miglior_costo = float('inf')
     miglior_config = None
     storia = []
@@ -197,16 +208,25 @@ def applica_economia_e_trova_ottimo(risultati_fisici, df_completo, mercato):
         nuc_mw = r['Nuc_GW'] * 1000.0
         bess_mwh = r['BESS_GWh'] * 1000.0
         
+        # --- COSTI FONTI ---
         costo_pv = (pv_mw * ore_eq_pv) * mercato['cfd_pv']
         costo_wind = (wind_mw * ore_eq_wind) * mercato['cfd_wind']
         costo_hydro = (hydro_fluente_tot_mwh + r['hydro_disp_mwh']) * mercato['gas_eur_mwh'] 
         costo_nuc = (nuc_mw * 1 * 8760) * mercato['cfd_nuc']
-        costo_bess = (bess_mwh * mercato['bess_capex']) / mercato['bess_vita']
+        
+        # --- NUOVO CALCOLO COSTO BESS (Finanziario + Fisso) ---
+        capex_investimento = bess_mwh * mercato['bess_capex']
+        quota_ammortamento = capex_investimento * crf
+        quota_opex_fissa = capex_investimento * opex_f_rate
+        costo_bess = quota_ammortamento + quota_opex_fissa
+        
         costo_gas = r['gas_mwh'] * mercato['gas_eur_mwh']
         costo_blackout = r['deficit_mwh'] * mercato['voll']
         
+        # Totale Bolletta
         costo_bolletta = (costo_pv + costo_wind + costo_hydro + costo_nuc + costo_bess + costo_gas + costo_blackout) / fabbisogno_tot_mwh
         
+        # --- EMISSIONI LCA ---
         emi_pv = (pv_mw * ore_eq_pv) * LCA_EMISSIONI['pv']
         emi_wind = (wind_mw * ore_eq_wind) * LCA_EMISSIONI['wind']
         emi_hydro = (hydro_fluente_tot_mwh + r['hydro_disp_mwh']) * LCA_EMISSIONI['hydro']
@@ -272,8 +292,10 @@ mercato = {
     'cfd_wind': st.sidebar.slider("CfD Eolico (€/MWh)", 30.0, 150.0, 80.0, step=5.0),
     'cfd_nuc': st.sidebar.slider("CfD Nucleare (€/MWh)", 50.0, 200.0, 120.0, step=5.0),
     'bess_capex': st.sidebar.slider("CAPEX Batterie (€/MWh installato)", 50000.0, 300000.0, 100000.0, step=10000.0),
-    'gas_eur_mwh': st.sidebar.slider("Prezzo Gas / Fossili (€/MWh)", 30.0, 300.0, 130.0, step=10.0),
-    'bess_vita': 15,     
+    'wacc_bess': st.sidebar.slider("WACC Batterie (%)", 0.0, 15.0, 5.0, step=0.5) / 100,
+    'bess_opex_fix': st.sidebar.slider("Manutenzione Annua BESS (% del CAPEX)", 0.0, 5.0, 1.5, step=0.1) / 100,
+    'bess_vita': 15,
+    'gas_eur_mwh': st.sidebar.slider("Prezzo Gas / Fossili (€/MWh)", 30.0, 300.0, 130.0, step=10.0),    
     'voll': 3000.0
 }
 
