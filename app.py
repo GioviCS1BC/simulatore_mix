@@ -56,9 +56,7 @@ DEFAULT_WIND_NORD_SHARE = 0.0163
 def _serie_pesata(df, pesi_colonne, scala=1.0, clip_upper=1.0):
     colonne_mancanti = [col for col in pesi_colonne if col not in df.columns]
     if colonne_mancanti:
-        raise KeyError(
-            "Nel dataset mancano le colonne richieste: " + ", ".join(colonne_mancanti)
-        )
+        raise KeyError("Nel dataset mancano le colonne richieste: " + ", ".join(colonne_mancanti))
 
     serie = sum(pd.to_numeric(df[col], errors='coerce').fillna(0.0) * peso for col, peso in pesi_colonne.items())
     serie = (serie / scala).clip(lower=0.0)
@@ -94,10 +92,7 @@ def leggi_gme(file_gme):
 
     if df_gme[colonna_volumi].dtype == 'object':
         df_gme[colonna_volumi] = (
-            df_gme[colonna_volumi]
-            .astype(str)
-            .str.replace('.', '', regex=False)
-            .str.replace(',', '.', regex=False)
+            df_gme[colonna_volumi].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
         )
 
     df_gme[colonna_volumi] = pd.to_numeric(df_gme[colonna_volumi], errors='coerce')
@@ -126,26 +121,10 @@ def carica_profili_rinnovabili(file_fotovoltaico, file_eolico):
     df_wind.set_index('time', inplace=True)
 
     profili = {
-        'pv_nord': pd.Series(
-            _serie_pesata(df_pv, PV_WEIGHTS_NORD, scala=1000.0, clip_upper=1.0).values,
-            index=df_pv.index,
-            name='pv_nord',
-        ),
-        'pv_sud': pd.Series(
-            _serie_pesata(df_pv, PV_WEIGHTS_SUD, scala=1000.0, clip_upper=1.0).values,
-            index=df_pv.index,
-            name='pv_sud',
-        ),
-        'wind_nord': pd.Series(
-            _serie_pesata(df_wind, WIND_WEIGHTS_NORD, scala=1.0, clip_upper=1.0).values,
-            index=df_wind.index,
-            name='wind_nord',
-        ),
-        'wind_sud': pd.Series(
-            _serie_pesata(df_wind, WIND_WEIGHTS_SUD, scala=1.0, clip_upper=1.0).values,
-            index=df_wind.index,
-            name='wind_sud',
-        ),
+        'pv_nord': pd.Series(_serie_pesata(df_pv, PV_WEIGHTS_NORD, scala=1000.0, clip_upper=1.0).values, index=df_pv.index, name='pv_nord'),
+        'pv_sud': pd.Series(_serie_pesata(df_pv, PV_WEIGHTS_SUD, scala=1000.0, clip_upper=1.0).values, index=df_pv.index, name='pv_sud'),
+        'wind_nord': pd.Series(_serie_pesata(df_wind, WIND_WEIGHTS_NORD, scala=1.0, clip_upper=1.0).values, index=df_wind.index, name='wind_nord'),
+        'wind_sud': pd.Series(_serie_pesata(df_wind, WIND_WEIGHTS_SUD, scala=1.0, clip_upper=1.0).values, index=df_wind.index, name='wind_sud'),
     }
     return profili
 
@@ -166,6 +145,7 @@ def carica_dati(file_fotovoltaico, file_gme, file_eolico, quota_pv_nord, quota_e
     df_completo['Fattore_Capacita_Wind'] = _mappa_profilo_annuale_su_indice(profilo_wind, df_completo.index)
 
     return df_completo.ffill()
+
 
 # ==========================================
 # 2. SIMULAZIONE FISICA (Numba)
@@ -238,8 +218,9 @@ def simula_rete_light_fast(produzione_pv, produzione_wind, fabbisogno,
 
     return gas_usato_totale, deficit_totale, overgen_totale, hydro_dispatched_totale, bess_scarica_totale
 
+
 # ==========================================
-# 3. MOTORE DI CALCOLO SEPARATO (Cache ottimizzata)
+# 3. MOTORE DI CALCOLO SEPARATO
 # ==========================================
 @st.cache_data
 def simula_tutti_scenari_fisici(array_pv, array_wind, array_fabbisogno):
@@ -347,6 +328,7 @@ def applica_economia_e_trova_ottimo(risultati_fisici, df_completo, mercato):
 
     df_risultati = pd.DataFrame(storia)
 
+    # Logica Budget 5%: Scegliamo il più pulito entro il +5% del costo minimo assoluto
     min_costo = df_risultati['Costo_Bolletta'].min()
     soglia_prezzo = min_costo * 1.05
 
@@ -354,6 +336,7 @@ def applica_economia_e_trova_ottimo(risultati_fisici, df_completo, mercato):
     miglior_config = scenari_ok.sort_values(by='Carbon_Intensity').iloc[0].to_dict()
 
     return miglior_config, df_risultati
+
 
 # ==========================================
 # 4. INTERFACCIA UTENTE (STREAMLIT)
@@ -391,19 +374,11 @@ with col_bottone:
 
 st.sidebar.header("🗺️ Mix geografico delle curve")
 quota_eolico_nord_pct = st.sidebar.slider(
-    "% eolico NORD",
-    min_value=0.0,
-    max_value=100.0,
-    value=round(DEFAULT_WIND_NORD_SHARE * 100, 2),
-    step=0.1,
+    "% eolico NORD", min_value=0.0, max_value=100.0, value=round(DEFAULT_WIND_NORD_SHARE * 100, 2), step=0.1,
     help="La quota SUD è calcolata automaticamente come 100 - quota NORD."
 )
 quota_fotovoltaico_nord_pct = st.sidebar.slider(
-    "% fotovoltaico NORD",
-    min_value=0.0,
-    max_value=100.0,
-    value=round(DEFAULT_PV_NORD_SHARE * 100, 2),
-    step=0.1,
+    "% fotovoltaico NORD", min_value=0.0, max_value=100.0, value=round(DEFAULT_PV_NORD_SHARE * 100, 2), step=0.1,
     help="La quota SUD è calcolata automaticamente come 100 - quota NORD."
 )
 st.sidebar.caption(
@@ -422,8 +397,7 @@ mercato = {
     'bess_vita': 15,
     'gas_eur_mwh': st.sidebar.slider("Prezzo Gas / Fossili (€/MWh)", 30.0, 300.0, 130.0, step=10.0),
     'costo_base_integrazione': st.sidebar.slider(
-        "Costo Integrazione Rete (€/MWh)",
-        0.0, 20.0, 10.0,
+        "Costo Integrazione Rete (€/MWh)", 0.0, 20.0, 10.0,
         help="Costo extra per bilanciamento e rete per gestire fotovoltaico ed eolico."
     ),
     'voll': 3000.0
@@ -455,7 +429,7 @@ try:
 
     miglior_config, df_plot = applica_economia_e_trova_ottimo(risultati_fisici, df_completo, mercato)
 
-    st.subheader("🏆 Il Miglior Compromesso (Ottimo Economico)")
+    st.subheader("🏆 Il Miglior Compromesso (Ottimo Economico + 5% Tolleranza Green)")
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Costo Bolletta", f"{miglior_config['Costo_Bolletta']:.1f} €/MWh")
     col2.metric("Carbon Intensity (LCA)", f"{miglior_config['Carbon_Intensity']:.1f} gCO₂/kWh")
@@ -492,14 +466,14 @@ try:
         y=[miglior_config['Costo_Bolletta']],
         mode='markers',
         marker=dict(color='lime', size=15, line=dict(color='black', width=2)),
-        name='Mix + Economico',
+        name='Ottimo Scelto',
         hoverinfo='skip'
     ))
 
     fig.update_layout(xaxis_autorange="reversed", height=600)
     st.plotly_chart(fig, use_container_width=True)
 
-# ==========================================
+    # ==========================================
     # 5. TRAIETTORIA DI TRANSIZIONE E COSTO DEL RITARDO
     # ==========================================
     st.markdown("---")
@@ -525,7 +499,7 @@ try:
         nuc_start = c4.number_input("Inizio Nucleare", 0, 40, 12, help="Richiede molti anni di permitting e costruzione.")
         nuc_end = c4.number_input("Fine Nucleare", 1, 50, 20)
 
-    # Identifica lo Status Quo (il minimo assoluto del simulatore)
+    # Identifica lo Status Quo (il minimo assoluto del simulatore per iniziare a contare da zero)
     status_quo = df_plot.loc[
         (df_plot['PV_GW'] == df_plot['PV_GW'].min()) & 
         (df_plot['Wind_GW'] == df_plot['Wind_GW'].min()) & 
@@ -533,15 +507,13 @@ try:
         (df_plot['Nuc_GW'] == df_plot['Nuc_GW'].min())
     ].iloc[0]
 
-    # Parametri costanti per richiamare Numba
     array_pv = df_completo['Fattore_Capacita_PV'].to_numpy(dtype=np.float64)
     array_wind = df_completo['Fattore_Capacita_Wind'].to_numpy(dtype=np.float64)
     array_fabbisogno = df_completo['Fabbisogno_MW'].to_numpy(dtype=np.float64)
     
-    # Nuova funzione: gestisce sia la crescita lineare che quella a "blocchi"
     def calcola_capacita_anno(anno, start_yr, end_yr, val_start, val_target, step_wise=False):
         if end_yr <= start_yr: 
-            end_yr = start_yr + 1 # Fallback sicurezza
+            end_yr = start_yr + 1 
             
         if anno <= start_yr:
             return val_start
@@ -550,30 +522,25 @@ try:
         else:
             quota = (anno - start_yr) / (end_yr - start_yr)
             valore = val_start + (val_target - val_start) * quota
-            # Se è una grande centrale (Nucleare), entra a blocchi interi (es. reattori da ~1 GW)
             if step_wise:
                 return np.floor(valore)
             return valore
 
-    # Calcola la fisica anno per anno
     storia_transizione = []
-    costo_gas_cumulato_mld = 0.0  # Contatore dei miliardi spesi in gas
+    costo_gas_cumulato_mld = 0.0
 
     for anno in range(anni_transizione + 1):
-        # Il solare e l'eolico crescono linearmente, il nucleare a blocchi (step_wise=True)
         pv_gw = calcola_capacita_anno(anno, pv_start, pv_end, status_quo['PV_GW'], miglior_config['PV_GW'])
         wind_gw = calcola_capacita_anno(anno, wind_start, wind_end, status_quo['Wind_GW'], miglior_config['Wind_GW'])
         bess_gwh = calcola_capacita_anno(anno, bess_start, bess_end, status_quo['BESS_GWh'], miglior_config['BESS_GWh'])
         nuc_gw = calcola_capacita_anno(anno, nuc_start, nuc_end, status_quo['Nuc_GW'], miglior_config['Nuc_GW'], step_wise=True)
         
-        # Ricalcola la rete con Numba per l'anno specifico
         gas_mwh, def_mwh, over_mwh, _, _ = simula_rete_light_fast(
             array_pv, array_wind, array_fabbisogno,
             pv_gw * 1000.0, wind_gw * 1000.0, nuc_gw * 1000.0, bess_gwh * 1000.0, 
             50000.0, 50000.0, 2500.0, 12000.0, 5000000.0, 2850.0
         )
         
-        # Integrazione economica: Quanto ci è costato il gas quest'anno?
         costo_gas_anno_mld = (gas_mwh * mercato['gas_eur_mwh']) / 1e9
         costo_gas_cumulato_mld += costo_gas_anno_mld
         
@@ -590,20 +557,15 @@ try:
 
     df_t = pd.DataFrame(storia_transizione)
 
-    # --- STAMPA DELLA METRICA "SHOCK" ---
     st.error(f"💸 **Spesa Cumulata per il Gas durante la transizione:** {costo_gas_cumulato_mld:.1f} Miliardi di €")
     st.caption(f"Questo è il costo generato dal bruciare gas negli anni intermedi, prima che tutti i nuovi impianti siano a regime. Se ritardi le autorizzazioni, questa cifra esplode.")
 
     fig2 = make_subplots(specs=[[{"secondary_y": True}]])
 
-    # Aggiungi le aree per la capacità installata
     fig2.add_trace(go.Scatter(x=df_t['Anno'], y=df_t['PV_GW'], mode='lines', stackgroup='one', name='Fotovoltaico (GW)', fillcolor='gold', line=dict(width=0.5)), secondary_y=False)
     fig2.add_trace(go.Scatter(x=df_t['Anno'], y=df_t['Wind_GW'], mode='lines', stackgroup='one', name='Eolico (GW)', fillcolor='lightskyblue', line=dict(width=0.5)), secondary_y=False)
-    
-    # Il nucleare ha line_shape='hv' (Horizontal-Vertical) per mostrare chiaramente lo scalino!
     fig2.add_trace(go.Scatter(x=df_t['Anno'], y=df_t['Nuc_GW'], mode='lines', stackgroup='one', name='Nucleare (GW)', fillcolor='mediumpurple', line=dict(width=1.5, shape='hv')), secondary_y=False)
     
-    # Linea spessa per il Gas (asse Y destro)
     fig2.add_trace(go.Scatter(x=df_t['Anno'], y=df_t['Gas_TWh'], mode='lines+markers', name='Consumo Gas (TWh)', line=dict(color='red', width=4), marker=dict(size=6)), secondary_y=True)
 
     fig2.update_layout(
@@ -617,7 +579,16 @@ try:
 
     st.plotly_chart(fig2, use_container_width=True)
     
-    # Alert se c'è deficit (blackout) durante la transizione
     deficit_max = df_t['Deficit_TWh'].max()
     if deficit_max > 0.5:
         st.warning(f"⚠️ Attenzione: Durante la transizione, la mancanza di impianti pronti causa un picco di deficit (blackout) di **{deficit_max:.1f} TWh**. Valuta di accelerare le batterie o mantenere più gas di riserva.")
+
+# ==========================================
+# GESTIONE ERRORI
+# ==========================================
+except FileNotFoundError:
+    st.error("⚠️ File dati non trovati! Assicurati che i file `dataset_fotovoltaico_produzione.csv`, `gme.xlsx` e `dataset_eolico_produzione.csv` siano nella stessa cartella di `app.py`.")
+except KeyError as e:
+    st.error(f"⚠️ Struttura dei dataset non compatibile con i pesi geografici configurati: {e}")
+except Exception as e:
+    st.error(f"⚠️ Errore durante l'elaborazione dei dati: {e}")
