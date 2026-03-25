@@ -35,9 +35,6 @@ Il tool permette di:
 - `dataset_fotovoltaico_produzione.csv` → profili fotovoltaici
 - `dataset_eolico_produzione.csv` → profili eolici
 
-## Avvio in streamlit
-
-https://simulatoremix-dgbxrbhlgppuoesfxewcpw.streamlit.app/
 
 ## Avvio in locale
 
