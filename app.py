@@ -604,7 +604,111 @@ except Exception as e:
     )
     fig2.update_yaxes(title_text="Capacità Installata (<b>GW</b>)", secondary_y=False)
     fig2.update_yaxes(title_text="Gas Bruciato (<b>TWh/anno</b>)", secondary_y=True, range=[0, df_t['Gas_TWh'].max() * 1.1])
+    # ==========================================
+    # 5. TRAIETTORIA DI TRANSIZIONE (DEPLOY SCAGLIONATO)
+    # ==========================================
+    st.markdown("---")
+    st.subheader("🛤️ Traiettoria Reale: Il peso dei tempi di costruzione")
+    st.markdown("Non tutte le tecnologie si costruiscono alla stessa velocità. Regola i tempi di *lead time* (permessi + cantiere) per vedere come il ritardo di alcune fonti impatta sul consumo di gas nei primi anni.")
+    
+    col_t1, col_t2 = st.columns([1, 2])
+    with col_t1:
+        anni_transizione = st.slider("Orizzonte di transizione (Anni)", 10, 40, 20)
+    
+    with st.expander("⏱️ Personalizza i tempi di deploy (Inizio -> Fine Lavori)"):
+        st.caption("L'anno 'Inizio' è quando il primo GW entra in rete. L'anno 'Fine' è quando si raggiunge il target del Mix Ottimo.")
+        c1, c2, c3, c4 = st.columns(4)
+        pv_start = c1.number_input("Inizio PV (Anno)", 0, 40, 1)
+        pv_end = c1.number_input("Fine PV (Anno)", 1, 40, 15)
+        
+        wind_start = c2.number_input("Inizio Eolico", 0, 40, 3)
+        wind_end = c2.number_input("Fine Eolico", 1, 40, 18)
+        
+        bess_start = c3.number_input("Inizio BESS", 0, 40, 1)
+        bess_end = c3.number_input("Fine BESS", 1, 40, 15)
+        
+        nuc_start = c4.number_input("Inizio Nucleare", 0, 40, 12, help="Richiede molti anni di permitting e costruzione.")
+        nuc_end = c4.number_input("Fine Nucleare", 1, 50, 20)
 
+    # 1. Identifica lo Status Quo (il minimo assoluto del simulatore)
+    status_quo = df_plot.loc[
+        (df_plot['PV_GW'] == df_plot['PV_GW'].min()) & 
+        (df_plot['Wind_GW'] == df_plot['Wind_GW'].min()) & 
+        (df_plot['BESS_GWh'] == df_plot['BESS_GWh'].min()) & 
+        (df_plot['Nuc_GW'] == df_plot['Nuc_GW'].min())
+    ].iloc[0]
+
+    # Parametri costanti per richiamare Numba
+    array_pv = df_completo['Fattore_Capacita_PV'].to_numpy(dtype=np.float64)
+    array_wind = df_completo['Fattore_Capacita_Wind'].to_numpy(dtype=np.float64)
+    array_fabbisogno = df_completo['Fabbisogno_MW'].to_numpy(dtype=np.float64)
+    
+    def calcola_capacita_anno(anno, start_yr, end_yr, val_start, val_target):
+        if end_yr <= start_yr: 
+            end_yr = start_yr + 1 # Fallback sicurezza
+        if anno <= start_yr:
+            return val_start
+        elif anno >= end_yr:
+            return val_target
+        else:
+            quota = (anno - start_yr) / (end_yr - start_yr)
+            return val_start + (val_target - val_start) * quota
+
+    # 2. Calcola la fisica anno per anno
+    storia_transizione = []
+
+    for anno in range(anni_transizione + 1):
+        pv_gw = calcola_capacita_anno(anno, pv_start, pv_end, status_quo['PV_GW'], miglior_config['PV_GW'])
+        wind_gw = calcola_capacita_anno(anno, wind_start, wind_end, status_quo['Wind_GW'], miglior_config['Wind_GW'])
+        bess_gwh = calcola_capacita_anno(anno, bess_start, bess_end, status_quo['BESS_GWh'], miglior_config['BESS_GWh'])
+        nuc_gw = calcola_capacita_anno(anno, nuc_start, nuc_end, status_quo['Nuc_GW'], miglior_config['Nuc_GW'])
+        
+        # Ricalcola la rete con Numba per l'anno specifico
+        gas_mwh, def_mwh, over_mwh, _, _ = simula_rete_light_fast(
+            array_pv, array_wind, array_fabbisogno,
+            pv_gw * 1000.0, wind_gw * 1000.0, nuc_gw * 1000.0, bess_gwh * 1000.0, 
+            50000.0, 50000.0, 2500.0, 12000.0, 5000000.0, 2850.0
+        )
+        
+        storia_transizione.append({
+            'Anno': anno,
+            'PV_GW': pv_gw,
+            'Wind_GW': wind_gw,
+            'Nuc_GW': nuc_gw,
+            'BESS_GWh': bess_gwh,
+            'Gas_TWh': gas_mwh / 1e6,
+            'Deficit_TWh': def_mwh / 1e6
+        })
+
+    df_t = pd.DataFrame(storia_transizione)
+
+    # 3. Grafico Plotly Avanzato
+    from plotly.subplots import make_subplots
+    fig2 = make_subplots(specs=[[{"secondary_y": True}]])
+
+    # Aggiungi le aree per la capacità installata (asse Y sinistro)
+    fig2.add_trace(go.Scatter(x=df_t['Anno'], y=df_t['PV_GW'], mode='lines', stackgroup='one', name='Fotovoltaico (GW)', fillcolor='gold', line=dict(width=0.5)), secondary_y=False)
+    fig2.add_trace(go.Scatter(x=df_t['Anno'], y=df_t['Wind_GW'], mode='lines', stackgroup='one', name='Eolico (GW)', fillcolor='lightskyblue', line=dict(width=0.5)), secondary_y=False)
+    fig2.add_trace(go.Scatter(x=df_t['Anno'], y=df_t['Nuc_GW'], mode='lines', stackgroup='one', name='Nucleare (GW)', fillcolor='mediumpurple', line=dict(width=0.5)), secondary_y=False)
+    
+    # Linea spessa per il Gas (asse Y destro)
+    fig2.add_trace(go.Scatter(x=df_t['Anno'], y=df_t['Gas_TWh'], mode='lines+markers', name='Consumo Gas (TWh)', line=dict(color='red', width=4), marker=dict(size=6)), secondary_y=True)
+
+    fig2.update_layout(
+        title="Capacità Installata vs Consumo di Gas Fossile nel Tempo",
+        xaxis_title="Anno di Transizione (0 = Oggi)",
+        hovermode="x unified",
+        height=500
+    )
+    fig2.update_yaxes(title_text="Capacità Installata (<b>GW</b>)", secondary_y=False)
+    fig2.update_yaxes(title_text="Gas Bruciato (<b>TWh/anno</b>)", secondary_y=True, range=[0, df_t['Gas_TWh'].max() * 1.1])
+
+    st.plotly_chart(fig2, use_container_width=True)
+    
+    # Alert se c'è deficit (blackout) durante la transizione
+    deficit_max = df_t['Deficit_TWh'].max()
+    if deficit_max > 0.5:
+        st.warning(f"⚠️ Attenzione: Durante la transizione, la mancanza di impianti pronti causa un picco di deficit (blackout) di **{deficit_max:.1f} TWh**. Valuta di accelerare le batterie o mantenere più gas di riserva.")
     st.plotly_chart(fig2, use_container_width=True)
     
     # Alert se c'è deficit (blackout) durante la transizione
