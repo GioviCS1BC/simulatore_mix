@@ -500,11 +500,11 @@ try:
     st.plotly_chart(fig, use_container_width=True)
 
     # ==========================================
-    # 5. TRAIETTORIA DI TRANSIZIONE (DEPLOY SCAGLIONATO)
+    # 5. TRAIETTORIA DI TRANSIZIONE E COSTO DEL RITARDO
     # ==========================================
     st.markdown("---")
-    st.subheader("🛤️ Traiettoria Reale: Il peso dei tempi di costruzione")
-    st.markdown("Non tutte le tecnologie si costruiscono alla stessa velocità. Regola i tempi di *lead time* (permessi + cantiere) per vedere come il ritardo di alcune fonti impatta sul consumo di gas nei primi anni.")
+    st.subheader("🛤️ Traiettoria Reale: Il costo dell'attesa")
+    st.markdown("I ritardi burocratici o i lunghi tempi di costruzione hanno un costo occulto: **nel frattempo si brucia gas**. Modifica i tempi di cantiere per vedere quanti miliardi ci costa una transizione lenta.")
     
     col_t1, col_t2 = st.columns([1, 2])
     with col_t1:
@@ -538,25 +538,33 @@ try:
     array_wind = df_completo['Fattore_Capacita_Wind'].to_numpy(dtype=np.float64)
     array_fabbisogno = df_completo['Fabbisogno_MW'].to_numpy(dtype=np.float64)
     
-    def calcola_capacita_anno(anno, start_yr, end_yr, val_start, val_target):
+    # Nuova funzione: gestisce sia la crescita lineare che quella a "blocchi"
+    def calcola_capacita_anno(anno, start_yr, end_yr, val_start, val_target, step_wise=False):
         if end_yr <= start_yr: 
             end_yr = start_yr + 1 # Fallback sicurezza
+            
         if anno <= start_yr:
             return val_start
         elif anno >= end_yr:
             return val_target
         else:
             quota = (anno - start_yr) / (end_yr - start_yr)
-            return val_start + (val_target - val_start) * quota
+            valore = val_start + (val_target - val_start) * quota
+            # Se è una grande centrale (Nucleare), entra a blocchi interi (es. reattori da ~1 GW)
+            if step_wise:
+                return np.floor(valore)
+            return valore
 
     # Calcola la fisica anno per anno
     storia_transizione = []
+    costo_gas_cumulato_mld = 0.0  # Contatore dei miliardi spesi in gas
 
     for anno in range(anni_transizione + 1):
+        # Il solare e l'eolico crescono linearmente, il nucleare a blocchi (step_wise=True)
         pv_gw = calcola_capacita_anno(anno, pv_start, pv_end, status_quo['PV_GW'], miglior_config['PV_GW'])
         wind_gw = calcola_capacita_anno(anno, wind_start, wind_end, status_quo['Wind_GW'], miglior_config['Wind_GW'])
         bess_gwh = calcola_capacita_anno(anno, bess_start, bess_end, status_quo['BESS_GWh'], miglior_config['BESS_GWh'])
-        nuc_gw = calcola_capacita_anno(anno, nuc_start, nuc_end, status_quo['Nuc_GW'], miglior_config['Nuc_GW'])
+        nuc_gw = calcola_capacita_anno(anno, nuc_start, nuc_end, status_quo['Nuc_GW'], miglior_config['Nuc_GW'], step_wise=True)
         
         # Ricalcola la rete con Numba per l'anno specifico
         gas_mwh, def_mwh, over_mwh, _, _ = simula_rete_light_fast(
@@ -565,6 +573,10 @@ try:
             50000.0, 50000.0, 2500.0, 12000.0, 5000000.0, 2850.0
         )
         
+        # Integrazione economica: Quanto ci è costato il gas quest'anno?
+        costo_gas_anno_mld = (gas_mwh * mercato['gas_eur_mwh']) / 1e9
+        costo_gas_cumulato_mld += costo_gas_anno_mld
+        
         storia_transizione.append({
             'Anno': anno,
             'PV_GW': pv_gw,
@@ -572,23 +584,30 @@ try:
             'Nuc_GW': nuc_gw,
             'BESS_GWh': bess_gwh,
             'Gas_TWh': gas_mwh / 1e6,
+            'Costo_Gas_Mld': costo_gas_anno_mld,
             'Deficit_TWh': def_mwh / 1e6
         })
 
     df_t = pd.DataFrame(storia_transizione)
 
+    # --- STAMPA DELLA METRICA "SHOCK" ---
+    st.error(f"💸 **Spesa Cumulata per il Gas durante la transizione:** {costo_gas_cumulato_mld:.1f} Miliardi di €")
+    st.caption(f"Questo è il costo generato dal bruciare gas negli anni intermedi, prima che tutti i nuovi impianti siano a regime. Se ritardi le autorizzazioni, questa cifra esplode.")
+
     fig2 = make_subplots(specs=[[{"secondary_y": True}]])
 
-    # Aggiungi le aree per la capacità installata (asse Y sinistro)
+    # Aggiungi le aree per la capacità installata
     fig2.add_trace(go.Scatter(x=df_t['Anno'], y=df_t['PV_GW'], mode='lines', stackgroup='one', name='Fotovoltaico (GW)', fillcolor='gold', line=dict(width=0.5)), secondary_y=False)
     fig2.add_trace(go.Scatter(x=df_t['Anno'], y=df_t['Wind_GW'], mode='lines', stackgroup='one', name='Eolico (GW)', fillcolor='lightskyblue', line=dict(width=0.5)), secondary_y=False)
-    fig2.add_trace(go.Scatter(x=df_t['Anno'], y=df_t['Nuc_GW'], mode='lines', stackgroup='one', name='Nucleare (GW)', fillcolor='mediumpurple', line=dict(width=0.5)), secondary_y=False)
+    
+    # Il nucleare ha line_shape='hv' (Horizontal-Vertical) per mostrare chiaramente lo scalino!
+    fig2.add_trace(go.Scatter(x=df_t['Anno'], y=df_t['Nuc_GW'], mode='lines', stackgroup='one', name='Nucleare (GW)', fillcolor='mediumpurple', line=dict(width=1.5, shape='hv')), secondary_y=False)
     
     # Linea spessa per il Gas (asse Y destro)
     fig2.add_trace(go.Scatter(x=df_t['Anno'], y=df_t['Gas_TWh'], mode='lines+markers', name='Consumo Gas (TWh)', line=dict(color='red', width=4), marker=dict(size=6)), secondary_y=True)
 
     fig2.update_layout(
-        title="Capacità Installata vs Consumo di Gas Fossile nel Tempo",
+        title="Dinamica di Costruzione e Riduzione del Gas",
         xaxis_title="Anno di Transizione (0 = Oggi)",
         hovermode="x unified",
         height=500
@@ -602,12 +621,3 @@ try:
     deficit_max = df_t['Deficit_TWh'].max()
     if deficit_max > 0.5:
         st.warning(f"⚠️ Attenzione: Durante la transizione, la mancanza di impianti pronti causa un picco di deficit (blackout) di **{deficit_max:.1f} TWh**. Valuta di accelerare le batterie o mantenere più gas di riserva.")
-
-except FileNotFoundError:
-    st.error(
-        "⚠️ File dati non trovati! Assicurati che i file `dataset_fotovoltaico_produzione.csv`, `gme.xlsx` e `dataset_eolico_produzione.csv` siano nella stessa cartella di `app.py`."
-    )
-except KeyError as e:
-    st.error(f"⚠️ Struttura dei dataset non compatibile con i pesi geografici configurati: {e}")
-except Exception as e:
-    st.error(f"⚠️ Errore durante l'elaborazione dei dati: {e}")
