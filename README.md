@@ -18,7 +18,7 @@ Il tool permette di:
 - confrontare costi ed emissioni;
 - esplorare un compromesso tra sostenibilità ed equilibrio economico.
 
-## Tecnologie utilizzate
+## Librerie usate
 
 - Streamlit
 - Pandas
