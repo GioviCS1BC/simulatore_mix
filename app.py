@@ -499,7 +499,7 @@ try:
     fig.update_layout(xaxis_autorange="reversed", height=600)
     st.plotly_chart(fig, use_container_width=True)
 
-    # ==========================================
+# ==========================================
     # 5. TRAIETTORIA DI TRANSIZIONE E COSTO DEL RITARDO
     # ==========================================
     st.markdown("---")
