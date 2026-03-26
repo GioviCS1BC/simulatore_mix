@@ -182,20 +182,29 @@ def simula_rete_light_fast(produzione_pv, produzione_wind, fabbisogno,
     return gas_usato_totale, deficit_totale, overgen_totale, hydro_dispatched_totale, bess_scarica_totale
 
 @njit
-def calcola_capacita_anno(anno, start_yr, end_yr, val_start, val_target, step_wise=False):
-    if end_yr <= start_yr: end_yr = start_yr + 1 
-    if anno <= start_yr: return val_start
-    if anno >= end_yr: return val_target
-    quota = (anno - start_yr) / (end_yr - start_yr)
-    valore = val_start + (val_target - val_start) * quota
-    if step_wise: return np.floor(valore)
+def calcola_capacita_anno_rate(anno, start_yr, val_start, val_target, rate, step_wise=False):
+    # Restituisce lo status quo se l'anno non è ancora iniziato
+    if anno <= start_yr: 
+        return val_start
+        
+    # Calcola quanto è stato aggiunto negli anni attivi
+    anni_attivi = anno - start_yr
+    valore = val_start + (anni_attivi * rate)
+    
+    # Non superare il target stabilito dallo scenario
+    if valore > val_target:
+        valore = val_target
+        
+    if step_wise: 
+        return np.floor(valore)
+        
     return valore
 
 @njit
 def simula_scenario_30_anni(prod_pv, prod_wind, fabbisogno, 
                             pv_target, wind_target, nuc_target, bess_target,
                             pv_sq, wind_sq, nuc_sq, bess_sq,
-                            t_start_numba, t_end_numba, anni_transizione=30):
+                            t_start_numba, rate_numba, anni_transizione=30):
     gas_tot, def_tot, over_tot, hydro_disp_tot, bess_out_tot = 0.0, 0.0, 0.0, 0.0, 0.0
     pv_gen_tot, wind_gen_tot, nuc_gen_tot = 0.0, 0.0, 0.0
     bess_installed_tot_mwh_years = 0.0
@@ -204,10 +213,11 @@ def simula_scenario_30_anni(prod_pv, prod_wind, fabbisogno,
     ore_anno = len(fabbisogno)
     
     for anno in range(anni_transizione + 1):
-        pv_gw = calcola_capacita_anno(anno, t_start_numba['pv'], t_end_numba['pv'], pv_sq, pv_target)
-        wind_gw = calcola_capacita_anno(anno, t_start_numba['wind'], t_end_numba['wind'], wind_sq, wind_target)
-        nuc_gw = calcola_capacita_anno(anno, t_start_numba['nuc'], t_end_numba['nuc'], nuc_sq, nuc_target, step_wise=True)
-        bess_gwh = calcola_capacita_anno(anno, t_start_numba['bess'], t_end_numba['bess'], bess_sq, bess_target)
+        # La capacità cresce anno per anno in base al rate impostato, fino al raggiungimento del target
+        pv_gw = calcola_capacita_anno_rate(anno, t_start_numba['pv'], pv_sq, pv_target, rate_numba['pv'])
+        wind_gw = calcola_capacita_anno_rate(anno, t_start_numba['wind'], wind_sq, wind_target, rate_numba['wind'])
+        nuc_gw = calcola_capacita_anno_rate(anno, t_start_numba['nuc'], nuc_sq, nuc_target, rate_numba['nuc'], step_wise=True)
+        bess_gwh = calcola_capacita_anno_rate(anno, t_start_numba['bess'], bess_sq, bess_target, rate_numba['bess'])
         
         gas, dfc, ovr, hyd, bss = simula_rete_light_fast(
             prod_pv, prod_wind, fabbisogno,
@@ -233,15 +243,15 @@ def simula_scenario_30_anni(prod_pv, prod_wind, fabbisogno,
             pv_gen_tot, wind_gen_tot, nuc_gen_tot, bess_installed_tot_mwh_years, vre_gen_tot)
 
 @st.cache_data
-def simula_motore_30_anni(array_pv, array_wind, array_fabbisogno, t_start_py, t_end_py, anni_transizione=30):
+def simula_motore_30_anni(array_pv, array_wind, array_fabbisogno, t_start_py, rate_py, anni_transizione=30):
     from numba.core import types
     from numba.typed import Dict
 
     # Convertiamo i dizionari Python in dizionari Numba DENTRO la funzione cachata
     d_start = Dict.empty(key_type=types.unicode_type, value_type=types.float64)
-    d_end = Dict.empty(key_type=types.unicode_type, value_type=types.float64)
+    d_rate = Dict.empty(key_type=types.unicode_type, value_type=types.float64)
     for k, v in t_start_py.items(): d_start[k] = float(v)
-    for k, v in t_end_py.items(): d_end[k] = float(v)
+    for k, v in rate_py.items(): d_rate[k] = float(v)
 
     scenari_pv_gw = [40, 70, 100, 150]
     scenari_wind_gw = [10, 30, 60, 90]
@@ -260,7 +270,7 @@ def simula_motore_30_anni(array_pv, array_wind, array_fabbisogno, t_start_py, t_
                         array_pv, array_wind, array_fabbisogno,
                         float(pv), float(wind), float(nuc), float(bess),
                         pv_sq, wind_sq, nuc_sq, bess_sq,
-                        d_start, d_end, anni_transizione
+                        d_start, d_rate, anni_transizione
                     )
                     
                     risultati_30y.append({
@@ -336,25 +346,25 @@ def applica_economia_cumulata(risultati_30y, fabbisogno_annuo_mwh, mercato, anni
 # 4. INTERFACCIA UTENTE (STREAMLIT)
 # ==========================================
 st.title("⚡ Simulatore Mix Energetico PRO - Pareto Cumulato su 30 Anni")
-st.markdown("Valuta le emissioni e i costi sull'**intero arco della transizione**. I ritardi burocratici si traducono in maggior gas bruciato prima che gli impianti entrino a regime.")
+st.markdown("Valuta le emissioni e i costi sull'**intero arco della transizione**. Imposta quanto velocemente riesci a installare nuova capacità ogni anno.")
 
-# --- SIDEBAR: TIMING & MERCATO ---
-st.sidebar.header("⏱️ Tempi di Costruzione (Anni)")
-st.sidebar.caption("0 = Oggi. Definisce l'anno di inizio installazione e l'anno in cui si raggiunge il Target di piano.")
+# --- SIDEBAR: TIMING E CAPACITÀ INSTALLATIVA ---
+st.sidebar.header("⏱️ Capacità Installativa (Velocità)")
+st.sidebar.caption("Definisce quando inizia la costruzione (0 = Oggi) e quanti GW/GWh all'anno riesci ad aggiungere alla rete.")
 anni_transizione = st.sidebar.slider("Orizzonte di transizione (Anni)", 10, 40, 30)
 
 col_t1, col_t2 = st.sidebar.columns(2)
 t_start = {
-    'pv': col_t1.number_input("Inizio PV", 0, 40, 1),
+    'pv': col_t1.number_input("Inizio PV (Anno)", 0, 40, 1),
     'wind': col_t1.number_input("Inizio Eol", 0, 40, 3),
     'bess': col_t1.number_input("Inizio BESS", 0, 40, 1),
     'nuc': col_t1.number_input("Inizio Nuc", 0, 40, 12, help="Lungo permitting")
 }
-t_end = {
-    'pv': col_t2.number_input("Fine PV", 1, 40, 15),
-    'wind': col_t2.number_input("Fine Eol", 1, 40, 18),
-    'bess': col_t2.number_input("Fine BESS", 1, 40, 15),
-    'nuc': col_t2.number_input("Fine Nuc", 1, 50, 22)
+rate = {
+    'pv': col_t2.number_input("Rate PV (GW/anno)", 0.5, 20.0, 6.0, step=0.5),
+    'wind': col_t2.number_input("Rate Eol (GW/anno)", 0.1, 10.0, 2.0, step=0.1),
+    'bess': col_t2.number_input("Rate BESS (GWh/a)", 0.5, 50.0, 10.0, step=1.0),
+    'nuc': col_t2.number_input("Rate Nuc (GW/anno)", 0.5, 5.0, 1.5, step=0.5)
 }
 
 st.sidebar.header("⚙️ Mercato & LCA")
@@ -382,10 +392,10 @@ try:
     array_fabbisogno = df_completo['Fabbisogno_MW'].to_numpy(dtype=np.float64)
     
     with st.spinner("Calcolo di 30 anni per tutti gli scenari... (Veloce grazie a Numba)"):
-        # Passiamo i dizionari Python puliti. Numba farà la conversione in modo sicuro all'interno.
+        # Ora passiamo rate_py invece di t_end_py
         risultati_30y = simula_motore_30_anni(
             array_pv, array_wind, array_fabbisogno, 
-            t_start, t_end, anni_transizione
+            t_start, rate, anni_transizione
         )
 
     fabbisogno_annuo_mwh = df_completo['Fabbisogno_MW'].sum()
@@ -400,7 +410,7 @@ try:
     col4.metric("Spreco Rete Cumulato", f"{miglior_config['Overgen_TWh_30y']:.1f} TWh")
 
     st.markdown(
-        f"**Target da raggiungere nell'anno prestabilito:** {miglior_config['Target_PV']} GW Solare | "
+        f"**Target da raggiungere:** {miglior_config['Target_PV']} GW Solare | "
         f"{miglior_config['Target_Wind']} GW Eolico | {miglior_config['Target_BESS']} GWh Batterie | "
         f"{miglior_config['Target_Nuc']} GW Nucleare"
     )
@@ -430,18 +440,20 @@ try:
     storia_t = []
     pv_sq, wind_sq, nuc_sq, bess_sq = 40.0, 10.0, 0.0, 10.0
     
-    def calc_cap_py(anno, s, e, start_v, tgt_v, step=False):
-        if e <= s: e = s + 1
-        if anno <= s: return start_v
-        if anno >= e: return tgt_v
-        v = start_v + (tgt_v - start_v) * ((anno - s)/(e - s))
+    # Helper python ricostruito per usare il Rate
+    def calc_cap_py_rate(anno, start_yr, start_v, tgt_v, rt, step=False):
+        if anno <= start_yr:
+            return start_v
+        v = start_v + (anno - start_yr) * rt
+        if v > tgt_v:
+            v = tgt_v
         return np.floor(v) if step else v
 
     for anno in range(anni_transizione + 1):
-        pv_gw = calc_cap_py(anno, t_start['pv'], t_end['pv'], pv_sq, miglior_config['Target_PV'])
-        wind_gw = calc_cap_py(anno, t_start['wind'], t_end['wind'], wind_sq, miglior_config['Target_Wind'])
-        nuc_gw = calc_cap_py(anno, t_start['nuc'], t_end['nuc'], nuc_sq, miglior_config['Target_Nuc'], True)
-        bess_gwh = calc_cap_py(anno, t_start['bess'], t_end['bess'], bess_sq, miglior_config['Target_BESS'])
+        pv_gw = calc_cap_py_rate(anno, t_start['pv'], pv_sq, miglior_config['Target_PV'], rate['pv'])
+        wind_gw = calc_cap_py_rate(anno, t_start['wind'], wind_sq, miglior_config['Target_Wind'], rate['wind'])
+        nuc_gw = calc_cap_py_rate(anno, t_start['nuc'], nuc_sq, miglior_config['Target_Nuc'], rate['nuc'], True)
+        bess_gwh = calc_cap_py_rate(anno, t_start['bess'], bess_sq, miglior_config['Target_BESS'], rate['bess'])
         
         gas, _, _, _, _ = simula_rete_light_fast(
             array_pv, array_wind, array_fabbisogno, pv_gw*1000, wind_gw*1000, nuc_gw*1000, bess_gwh*1000,
