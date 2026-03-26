@@ -371,10 +371,32 @@ def applica_economia_cumulata(risultati_30y, fabbisogno_annuo_mwh, mercato, anni
         subset=['Reached_PV', 'Reached_Wind', 'Reached_BESS', 'Reached_Nuc']
     )
 
-    min_costo = df_risultati['Costo_Medio_30y'].min()
-    scenari_ok = df_risultati[df_risultati['Costo_Medio_30y'] <= min_costo * 1.05]
-    miglior_config = scenari_ok.sort_values(by='Carbon_Intensity_30y').iloc[0].to_dict()
+    # --- NUOVA LOGICA DI SCELTA DELL'OTTIMO: PUNTO UTOPICO ---
     
+    # 1. Troviamo i minimi e massimi per normalizzare la scala (da 0 a 1)
+    min_c = df_risultati['Costo_Medio_30y'].min()
+    max_c = df_risultati['Costo_Medio_30y'].max()
+    min_e = df_risultati['Carbon_Intensity_30y'].min()
+    max_e = df_risultati['Carbon_Intensity_30y'].max()
+
+    # Preveniamo divisioni per zero nel caso estremo in cui ci sia un solo scenario
+    if max_c == min_c: max_c = min_c + 1
+    if max_e == min_e: max_e = min_e + 1
+
+    # 2. Normalizziamo Costi ed Emissioni
+    df_risultati['Norm_Cost'] = (df_risultati['Costo_Medio_30y'] - min_c) / (max_c - min_c)
+    df_risultati['Norm_Emi'] = (df_risultati['Carbon_Intensity_30y'] - min_e) / (max_e - min_e)
+
+    # 3. Calcoliamo la distanza dal Punto Utopico ideale (0 Costi, 0 Emissioni)
+    # Usiamo il teorema di Pitagora: radice quadrata della somma dei quadrati
+    df_risultati['Distanza_Utopia'] = np.sqrt(df_risultati['Norm_Cost']**2 + df_risultati['Norm_Emi']**2)
+
+    # 4. Il miglior compromesso assoluto è quello con la distanza minore!
+    miglior_config = df_risultati.sort_values(by='Distanza_Utopia').iloc[0].to_dict()
+    
+    # Pulizia colonne di servizio prima di restituire il dataframe
+    df_risultati = df_risultati.drop(columns=['Norm_Cost', 'Norm_Emi', 'Distanza_Utopia'])
+
     return miglior_config, df_risultati
 
 # ==========================================
