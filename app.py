@@ -346,6 +346,19 @@ def applica_economia_cumulata(risultati_30y, fabbisogno_annuo_mwh, mercato, anni
         })
 
     df_risultati = pd.DataFrame(storia)
+    
+    # RIMOZIONE TARGET FANTASMA E SCENARI DOPPIONI
+    df_risultati['Sogni_Infranti'] = (
+        (df_risultati['Target_PV'] - df_risultati['Reached_PV']) +
+        (df_risultati['Target_Wind'] - df_risultati['Reached_Wind']) +
+        (df_risultati['Target_BESS'] - df_risultati['Reached_BESS']) +
+        (df_risultati['Target_Nuc'] - df_risultati['Reached_Nuc'])
+    )
+    
+    df_risultati = df_risultati.sort_values('Sogni_Infranti').drop_duplicates(
+        subset=['Reached_PV', 'Reached_Wind', 'Reached_BESS', 'Reached_Nuc']
+    ).drop(columns=['Sogni_Infranti'])
+
     min_costo = df_risultati['Costo_Medio_30y'].min()
     scenari_ok = df_risultati[df_risultati['Costo_Medio_30y'] <= min_costo * 1.05]
     miglior_config = scenari_ok.sort_values(by='Carbon_Intensity_30y').iloc[0].to_dict()
@@ -419,11 +432,11 @@ try:
         f"**Capacità effettivamente installata:** {miglior_config['Reached_PV']} GW Solare | "
         f"{miglior_config['Reached_Wind']} GW Eolico | {miglior_config['Reached_BESS']} GWh Batterie | "
         f"{miglior_config['Reached_Nuc']} GW Nucleare\n\n"
-        f"*(Target teorico di questo scenario: FV {miglior_config['Target_PV']} GW, Eol {miglior_config['Target_Wind']} GW, "
+        f"*(Target teorico che guidava questo scenario: FV {miglior_config['Target_PV']} GW, Eol {miglior_config['Target_Wind']} GW, "
         f"BESS {miglior_config['Target_BESS']} GWh, Nuc {miglior_config['Target_Nuc']} GW)*"
     )
 
-    st.subheader("📊 Frontiera di Pareto")
+    st.subheader("📊 Frontiera di Pareto (Usa l'effettivo Nucleare costruito)")
     fig = px.scatter(
         df_plot, x='Carbon_Intensity_30y', y='Costo_Medio_30y', color='Reached_Nuc',
         color_continuous_scale='Plasma', 
@@ -441,7 +454,6 @@ try:
         name='Ottimo Scelto'
     ))
     
-    # Trasparenza aggiunta per mostrare i punti sovrapposti
     fig.update_traces(marker=dict(opacity=0.6, line=dict(width=0.5, color='white')))
     fig.update_layout(xaxis_autorange="reversed", height=500)
     st.plotly_chart(fig, use_container_width=True)
