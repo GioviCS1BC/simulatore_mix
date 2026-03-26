@@ -419,11 +419,11 @@ def applica_economia_cumulata(risultati_30y, fabbisogno_annuo_mwh, mercato, anni
 # ==========================================
 # 4. INTERFACCIA UTENTE (STREAMLIT)
 # ==========================================
-st.title("⚡ Simulatore Mix Energetico PRO - Pareto Cumulato")
+st.title("⚡ QUANTO RISPARMIEREMMO CON LA TRANSIZIONE?")
 st.markdown("Valuta le emissioni e i costi sull'**intero arco della transizione**. Imposta quanto velocemente riesci a installare nuova capacità ogni anno.")
 
 # --- SIDEBAR: TIMING E CAPACITÀ INSTALLATIVA ---
-st.sidebar.header("⏱️ Capacità Installativa (Velocità)")
+st.sidebar.header("⏱️ Velocità nelle installazioni")
 st.sidebar.caption("Definisce quando inizia la costruzione (0 = Oggi) e quanti GW/GWh all'anno riesci ad aggiungere alla rete.")
 anni_transizione = st.sidebar.slider("Orizzonte di transizione (Anni)", 10, 40, 30)
 
@@ -473,7 +473,7 @@ try:
 
     # --- RISULTATI ---
     st.subheader(f"🏆 Il Miglior Risultato Raggiunto (all'anno {anni_transizione})")
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     col1.metric("Costo Medio Cumulato", f"{miglior_config['Costo_Medio_30y']:.1f} €/MWh")
     col2.metric("Carbon Intensity Media", f"{miglior_config['Carbon_Intensity_30y']:.1f} gCO₂/kWh")
     
@@ -483,11 +483,7 @@ try:
         f"+{miglior_config['Risparmio_Mld_30y']:.1f} Mld €", 
         help="Miliardi di Euro risparmiati sull'intero sistema rispetto a non costruire nulla (Status Quo)."
     )
-    col4.metric(
-        "Costo Spreco (Curtailment)", 
-        f"{miglior_config['Valore_Spreco_Mld_30y']:.1f} Mld €", 
-        help=f"Pari a {miglior_config['Overgen_TWh_30y']:.1f} TWh buttati, valorizzati al CfD medio."
-    )
+   
 
     st.markdown(
         f"**Capacità effettivamente installata:** {miglior_config['Reached_PV']} GW Solare | "
@@ -496,7 +492,7 @@ try:
         f"*(Spesa Totale del sistema nel periodo: {miglior_config['Spesa_Totale_Mld_30y']:.1f} Mld € | Target che guidava questo scenario: FV {miglior_config['Target_PV']}, Eol {miglior_config['Target_Wind']}, BESS {miglior_config['Target_BESS']}, Nuc {miglior_config['Target_Nuc']})*"
     )
 
-    st.subheader("📊 Frontiera di Pareto (Usa l'effettivo Nucleare costruito)")
+    st.subheader("📊 Frontiera di Pareto")
     fig = px.scatter(
         df_plot, x='Carbon_Intensity_30y', y='Costo_Medio_30y', color='Reached_Nuc',
         color_continuous_scale='Plasma', 
