@@ -423,7 +423,7 @@ try:
         f"BESS {miglior_config['Target_BESS']} GWh, Nuc {miglior_config['Target_Nuc']} GW)*"
     )
 
-    st.subheader("📊 Frontiera di Pareto (Usa l'effettivo Nucleare costruito)")
+    st.subheader("📊 Frontiera di Pareto")
     fig = px.scatter(
         df_plot, x='Carbon_Intensity_30y', y='Costo_Medio_30y', color='Reached_Nuc',
         color_continuous_scale='Plasma', 
