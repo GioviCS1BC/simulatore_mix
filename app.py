@@ -235,7 +235,7 @@ def simula_scenario_30_anni(prod_pv, prod_wind, fabbisogno,
             pv_gen_tot, wind_gen_tot, nuc_gen_tot, bess_installed_tot_mwh_years, vre_gen_tot)
 
 # ==========================================
-# 3. HELPER PYTHON E MOTORE SCENARI
+# 3. HELPER PYTHON E MOTORE SCENARI (GRIGLIA DINAMICA)
 # ==========================================
 def get_reached_capacity(anno_fine, start_yr, val_start, val_target, rate, step_wise=False):
     if anno_fine <= start_yr:
@@ -258,12 +258,31 @@ def simula_motore_30_anni(array_pv, array_wind, array_fabbisogno, t_start_py, ra
     for k, v in t_start_py.items(): d_start[k] = float(v)
     for k, v in rate_py.items(): d_rate[k] = float(v)
 
-    scenari_pv_gw = [40, 70, 100, 150]
-    scenari_wind_gw = [10, 30, 60, 90]
-    scenari_bess_gwh = [10, 50, 150, 300]
-    scenari_nuc_gw = [0, 5, 10, 20]
-
     pv_sq, wind_sq, nuc_sq, bess_sq = 40.0, 10.0, 0.0, 10.0
+    
+    # ---------------------------------------------------------
+    # NOVITÀ: GRIGLIA SCENARI DINAMICA
+    # Calcoliamo il massimo fisicamente raggiungibile nell'orizzonte scelto
+    # ---------------------------------------------------------
+    def max_reach(sq, limit, t_start, rate):
+        active_years = max(0, anni_transizione - t_start)
+        return min(limit, sq + (active_years * rate))
+
+    max_pv = max_reach(pv_sq, 150.0, t_start_py['pv'], rate_py['pv'])
+    max_wind = max_reach(wind_sq, 90.0, t_start_py['wind'], rate_py['wind'])
+    max_bess = max_reach(bess_sq, 300.0, t_start_py['bess'], rate_py['bess'])
+    max_nuc = np.floor(max_reach(nuc_sq, 20.0, t_start_py['nuc'], rate_py['nuc']))
+
+    # Creiamo 4 step intermedi esatti tra lo status quo e il massimo possibile
+    def make_grid(sq, mx, steps=4):
+        if mx <= sq: return [float(sq)]
+        return sorted(list(set([float(round(x, 1)) for x in np.linspace(sq, mx, steps)])))
+
+    scenari_pv_gw = make_grid(pv_sq, max_pv, 4)
+    scenari_wind_gw = make_grid(wind_sq, max_wind, 4)
+    scenari_bess_gwh = make_grid(bess_sq, max_bess, 4)
+    scenari_nuc_gw = make_grid(nuc_sq, max_nuc, 4)
+
     risultati_30y = []
 
     for pv in scenari_pv_gw:
@@ -271,7 +290,7 @@ def simula_motore_30_anni(array_pv, array_wind, array_fabbisogno, t_start_py, ra
             for bess in scenari_bess_gwh:
                 for nuc in scenari_nuc_gw:
                     
-                    # Calcoliamo la capacità EFFETTIVA raggiunta all'ultimo anno
+                    # Dato che la griglia è dinamica, il Target è ora sempre raggiungibile!
                     r_pv = get_reached_capacity(anni_transizione, t_start_py['pv'], pv_sq, float(pv), rate_py['pv'])
                     r_wind = get_reached_capacity(anni_transizione, t_start_py['wind'], wind_sq, float(wind), rate_py['wind'])
                     r_nuc = get_reached_capacity(anni_transizione, t_start_py['nuc'], nuc_sq, float(nuc), rate_py['nuc'], True)
@@ -347,17 +366,10 @@ def applica_economia_cumulata(risultati_30y, fabbisogno_annuo_mwh, mercato, anni
 
     df_risultati = pd.DataFrame(storia)
     
-    # RIMOZIONE TARGET FANTASMA E SCENARI DOPPIONI
-    df_risultati['Sogni_Infranti'] = (
-        (df_risultati['Target_PV'] - df_risultati['Reached_PV']) +
-        (df_risultati['Target_Wind'] - df_risultati['Reached_Wind']) +
-        (df_risultati['Target_BESS'] - df_risultati['Reached_BESS']) +
-        (df_risultati['Target_Nuc'] - df_risultati['Reached_Nuc'])
-    )
-    
-    df_risultati = df_risultati.sort_values('Sogni_Infranti').drop_duplicates(
+    # RIMOZIONE DOPPIONI E SCENARI IDENTICI
+    df_risultati = df_risultati.drop_duplicates(
         subset=['Reached_PV', 'Reached_Wind', 'Reached_BESS', 'Reached_Nuc']
-    ).drop(columns=['Sogni_Infranti'])
+    )
 
     min_costo = df_risultati['Costo_Medio_30y'].min()
     scenari_ok = df_risultati[df_risultati['Costo_Medio_30y'] <= min_costo * 1.05]
