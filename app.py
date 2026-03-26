@@ -273,15 +273,32 @@ def simula_motore_30_anni(array_pv, array_wind, array_fabbisogno, t_start_py, ra
     max_bess = max_reach(bess_sq, 300.0, t_start_py['bess'], rate_py['bess'])
     max_nuc = np.floor(max_reach(nuc_sq, 20.0, t_start_py['nuc'], rate_py['nuc']))
 
-    # Creiamo 4 step intermedi esatti tra lo status quo e il massimo possibile
-    def make_grid(sq, mx, steps=4):
-        if mx <= sq: return [float(sq)]
-        return sorted(list(set([float(round(x, 1)) for x in np.linspace(sq, mx, steps)])))
+    # ---------------------------------------------------------
+    # NOVITÀ: GRIGLIA AD ANCORAGGI FISSI (No Effetto Fisarmonica)
+    # ---------------------------------------------------------
+    def max_reach(sq, limit, t_start, rate):
+        active_years = max(0, anni_transizione - t_start)
+        return min(limit, sq + (active_years * rate))
 
-    scenari_pv_gw = make_grid(pv_sq, max_pv, 4)
-    scenari_wind_gw = make_grid(wind_sq, max_wind, 4)
-    scenari_bess_gwh = make_grid(bess_sq, max_bess, 4)
-    scenari_nuc_gw = make_grid(nuc_sq, max_nuc, 4)
+    max_pv = max_reach(pv_sq, 150.0, t_start_py['pv'], rate_py['pv'])
+    max_wind = max_reach(wind_sq, 90.0, t_start_py['wind'], rate_py['wind'])
+    max_bess = max_reach(bess_sq, 300.0, t_start_py['bess'], rate_py['bess'])
+    max_nuc = np.floor(max_reach(nuc_sq, 20.0, t_start_py['nuc'], rate_py['nuc']))
+
+    # Usa ancore fisse, e aggiunge il "massimo" solo come tetto finale
+    def get_valid_targets(sq, max_val, base_targets):
+        valid = [float(sq)]
+        for t in base_targets:
+            if sq < t < max_val:
+                valid.append(float(t))
+        if max_val > sq:
+            valid.append(float(max_val))
+        return sorted(list(set([round(v, 1) for v in valid])))
+
+    scenari_pv_gw = get_valid_targets(pv_sq, max_pv, [70, 100, 150])
+    scenari_wind_gw = get_valid_targets(wind_sq, max_wind, [30, 60, 90])
+    scenari_bess_gwh = get_valid_targets(bess_sq, max_bess, [50, 150, 300])
+    scenari_nuc_gw = get_valid_targets(nuc_sq, max_nuc, [5, 10, 20])
 
     risultati_30y = []
 
