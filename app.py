@@ -10,7 +10,7 @@ from numba import njit
 # ==========================================
 # CONFIGURAZIONE PAGINA
 # ==========================================
-st.set_page_config(page_title="Simulatore Mix Energetico PRO - 30 Anni", layout="wide")
+st.set_page_config(page_title="Simulatore Mix Energetico PRO - Pareto Cumulato", layout="wide")
 
 # ==========================================
 # PESI GEOGRAFICI CURVE MEDIE
@@ -120,7 +120,7 @@ def carica_dati(file_fotovoltaico, file_gme, file_eolico, quota_pv_nord, quota_e
     return df_completo.ffill()
 
 # ==========================================
-# 2. SIMULAZIONE FISICA (Numba) - OTTIMIZZATA PER 30 ANNI
+# 2. SIMULAZIONE FISICA E CAPACITÀ (Numba)
 # ==========================================
 @njit
 def simula_rete_light_fast(produzione_pv, produzione_wind, fabbisogno,
@@ -183,21 +183,14 @@ def simula_rete_light_fast(produzione_pv, produzione_wind, fabbisogno,
 
 @njit
 def calcola_capacita_anno_rate(anno, start_yr, val_start, val_target, rate, step_wise=False):
-    # Restituisce lo status quo se l'anno non è ancora iniziato
     if anno <= start_yr: 
         return val_start
-        
-    # Calcola quanto è stato aggiunto negli anni attivi
     anni_attivi = anno - start_yr
     valore = val_start + (anni_attivi * rate)
-    
-    # Non superare il target stabilito dallo scenario
     if valore > val_target:
         valore = val_target
-        
     if step_wise: 
         return np.floor(valore)
-        
     return valore
 
 @njit
@@ -213,7 +206,6 @@ def simula_scenario_30_anni(prod_pv, prod_wind, fabbisogno,
     ore_anno = len(fabbisogno)
     
     for anno in range(anni_transizione + 1):
-        # La capacità cresce anno per anno in base al rate impostato, fino al raggiungimento del target
         pv_gw = calcola_capacita_anno_rate(anno, t_start_numba['pv'], pv_sq, pv_target, rate_numba['pv'])
         wind_gw = calcola_capacita_anno_rate(anno, t_start_numba['wind'], wind_sq, wind_target, rate_numba['wind'])
         nuc_gw = calcola_capacita_anno_rate(anno, t_start_numba['nuc'], nuc_sq, nuc_target, rate_numba['nuc'], step_wise=True)
@@ -242,12 +234,25 @@ def simula_scenario_30_anni(prod_pv, prod_wind, fabbisogno,
     return (gas_tot, def_tot, over_tot, hydro_disp_tot, bess_out_tot, 
             pv_gen_tot, wind_gen_tot, nuc_gen_tot, bess_installed_tot_mwh_years, vre_gen_tot)
 
+# ==========================================
+# 3. HELPER PYTHON E MOTORE SCENARI
+# ==========================================
+def get_reached_capacity(anno_fine, start_yr, val_start, val_target, rate, step_wise=False):
+    if anno_fine <= start_yr:
+        return val_start
+    valore = val_start + ((anno_fine - start_yr) * rate)
+    if valore > val_target:
+        valore = val_target
+    if step_wise:
+        return np.floor(valore)
+    return valore
+
 @st.cache_data
 def simula_motore_30_anni(array_pv, array_wind, array_fabbisogno, t_start_py, rate_py, anni_transizione=30):
     from numba.core import types
     from numba.typed import Dict
 
-    # Convertiamo i dizionari Python in dizionari Numba DENTRO la funzione cachata
+    # Conversione per evitare errori di hash in Streamlit
     d_start = Dict.empty(key_type=types.unicode_type, value_type=types.float64)
     d_rate = Dict.empty(key_type=types.unicode_type, value_type=types.float64)
     for k, v in t_start_py.items(): d_start[k] = float(v)
@@ -265,6 +270,13 @@ def simula_motore_30_anni(array_pv, array_wind, array_fabbisogno, t_start_py, ra
         for wind in scenari_wind_gw:
             for bess in scenari_bess_gwh:
                 for nuc in scenari_nuc_gw:
+                    
+                    # Calcoliamo la capacità EFFETTIVA raggiunta all'ultimo anno
+                    r_pv = get_reached_capacity(anni_transizione, t_start_py['pv'], pv_sq, float(pv), rate_py['pv'])
+                    r_wind = get_reached_capacity(anni_transizione, t_start_py['wind'], wind_sq, float(wind), rate_py['wind'])
+                    r_nuc = get_reached_capacity(anni_transizione, t_start_py['nuc'], nuc_sq, float(nuc), rate_py['nuc'], True)
+                    r_bess = get_reached_capacity(anni_transizione, t_start_py['bess'], bess_sq, float(bess), rate_py['bess'])
+
                     (gas_tot, def_tot, over_tot, hydro_disp_tot, bess_out_tot, 
                      pv_gen_tot, wind_gen_tot, nuc_gen_tot, bess_inst_years, vre_tot) = simula_scenario_30_anni(
                         array_pv, array_wind, array_fabbisogno,
@@ -275,6 +287,7 @@ def simula_motore_30_anni(array_pv, array_wind, array_fabbisogno, t_start_py, ra
                     
                     risultati_30y.append({
                         'Target_PV': pv, 'Target_Wind': wind, 'Target_BESS': bess, 'Target_Nuc': nuc,
+                        'Reached_PV': r_pv, 'Reached_Wind': r_wind, 'Reached_BESS': r_bess, 'Reached_Nuc': r_nuc,
                         'gas_mwh': gas_tot, 'deficit_mwh': def_tot, 'overgen_mwh': over_tot,
                         'hydro_disp_mwh': hydro_disp_tot, 'bess_scarica_mwh': bess_out_tot,
                         'pv_gen_mwh': pv_gen_tot, 'wind_gen_mwh': wind_gen_tot, 'nuc_gen_mwh': nuc_gen_tot,
@@ -286,7 +299,6 @@ def simula_motore_30_anni(array_pv, array_wind, array_fabbisogno, t_start_py, ra
 def applica_economia_cumulata(risultati_30y, fabbisogno_annuo_mwh, mercato, anni_transizione=30):
     fabbisogno_cumulato = fabbisogno_annuo_mwh * (anni_transizione + 1)
     hydro_fluente_cumulato = 2500.0 * 8760 * (anni_transizione + 1)
-    
     LCA_EMISSIONI = {'pv': 45.0, 'wind': 11.0, 'hydro': 24.0, 'nuc': 12.0, 'bess': 50.0, 'gas': 550.0}
     
     wacc = mercato.get('wacc_bess', 0.05)
@@ -322,14 +334,12 @@ def applica_economia_cumulata(risultati_30y, fabbisogno_annuo_mwh, mercato, anni
                    r['bess_scarica_mwh'] * LCA_EMISSIONI['bess'] +
                    r['gas_mwh'] * LCA_EMISSIONI['gas'])
         
-        carbon_intensity_media = emi_tot / fabbisogno_cumulato
-        
         storia.append({
-            'Configurazione': f"{r['Target_PV']}P|{r['Target_Wind']}W|{r['Target_BESS']}B|{r['Target_Nuc']}N",
-            'Target_PV': r['Target_PV'], 'Target_Wind': r['Target_Wind'], 
-            'Target_BESS': r['Target_BESS'], 'Target_Nuc': r['Target_Nuc'],
+            'Configurazione': f"{r['Reached_PV']}P|{r['Reached_Wind']}W|{r['Reached_BESS']}B|{r['Reached_Nuc']}N",
+            'Target_PV': r['Target_PV'], 'Target_Wind': r['Target_Wind'], 'Target_BESS': r['Target_BESS'], 'Target_Nuc': r['Target_Nuc'],
+            'Reached_PV': r['Reached_PV'], 'Reached_Wind': r['Reached_Wind'], 'Reached_BESS': r['Reached_BESS'], 'Reached_Nuc': r['Reached_Nuc'],
             'Costo_Medio_30y': costo_medio_bolletta,
-            'Carbon_Intensity_30y': carbon_intensity_media,
+            'Carbon_Intensity_30y': emi_tot / fabbisogno_cumulato,
             'Gas_%_30y': percentuale_gas,
             'Overgen_TWh_30y': r['overgen_mwh'] / 1e6,
             'Gas_Mld_30y': costo_gas_tot / 1e9
@@ -345,7 +355,7 @@ def applica_economia_cumulata(risultati_30y, fabbisogno_annuo_mwh, mercato, anni
 # ==========================================
 # 4. INTERFACCIA UTENTE (STREAMLIT)
 # ==========================================
-st.title("⚡ Simulatore Mix Energetico PRO - Pareto Cumulato su 30 Anni")
+st.title("⚡ Simulatore Mix Energetico PRO - Pareto Cumulato")
 st.markdown("Valuta le emissioni e i costi sull'**intero arco della transizione**. Imposta quanto velocemente riesci a installare nuova capacità ogni anno.")
 
 # --- SIDEBAR: TIMING E CAPACITÀ INSTALLATIVA ---
@@ -358,7 +368,7 @@ t_start = {
     'pv': col_t1.number_input("Inizio PV (Anno)", 0, 40, 1),
     'wind': col_t1.number_input("Inizio Eol", 0, 40, 3),
     'bess': col_t1.number_input("Inizio BESS", 0, 40, 1),
-    'nuc': col_t1.number_input("Inizio Nuc", 0, 40, 12, help="Lungo permitting")
+    'nuc': col_t1.number_input("Inizio Nuc", 0, 40, 12)
 }
 rate = {
     'pv': col_t2.number_input("Rate PV (GW/anno)", 0.5, 20.0, 6.0, step=0.5),
@@ -391,45 +401,48 @@ try:
     array_wind = df_completo['Fattore_Capacita_Wind'].to_numpy(dtype=np.float64)
     array_fabbisogno = df_completo['Fabbisogno_MW'].to_numpy(dtype=np.float64)
     
-    with st.spinner("Calcolo di 30 anni per tutti gli scenari... (Veloce grazie a Numba)"):
-        # Ora passiamo rate_py invece di t_end_py
-        risultati_30y = simula_motore_30_anni(
-            array_pv, array_wind, array_fabbisogno, 
-            t_start, rate, anni_transizione
-        )
+    with st.spinner("Calcolo di tutti gli scenari..."):
+        risultati_30y = simula_motore_30_anni(array_pv, array_wind, array_fabbisogno, t_start, rate, anni_transizione)
 
     fabbisogno_annuo_mwh = df_completo['Fabbisogno_MW'].sum()
     miglior_config, df_plot = applica_economia_cumulata(risultati_30y, fabbisogno_annuo_mwh, mercato, anni_transizione)
 
     # --- RISULTATI ---
-    st.subheader("🏆 Il Miglior Target a Regime (Vincitore della Maratona 30 Anni)")
+    st.subheader(f"🏆 Il Miglior Risultato Raggiunto (all'anno {anni_transizione})")
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Costo Medio (30 Anni)", f"{miglior_config['Costo_Medio_30y']:.1f} €/MWh")
+    col1.metric("Costo Medio Cumulato", f"{miglior_config['Costo_Medio_30y']:.1f} €/MWh")
     col2.metric("Carbon Intensity Media", f"{miglior_config['Carbon_Intensity_30y']:.1f} gCO₂/kWh")
     col3.metric("Spesa Gas Cumulata", f"{miglior_config['Gas_Mld_30y']:.1f} Mld €")
     col4.metric("Spreco Rete Cumulato", f"{miglior_config['Overgen_TWh_30y']:.1f} TWh")
 
     st.markdown(
-        f"**Target da raggiungere:** {miglior_config['Target_PV']} GW Solare | "
-        f"{miglior_config['Target_Wind']} GW Eolico | {miglior_config['Target_BESS']} GWh Batterie | "
-        f"{miglior_config['Target_Nuc']} GW Nucleare"
+        f"**Capacità effettivamente installata:** {miglior_config['Reached_PV']} GW Solare | "
+        f"{miglior_config['Reached_Wind']} GW Eolico | {miglior_config['Reached_BESS']} GWh Batterie | "
+        f"{miglior_config['Reached_Nuc']} GW Nucleare\n\n"
+        f"*(Target teorico di questo scenario: FV {miglior_config['Target_PV']} GW, Eol {miglior_config['Target_Wind']} GW, "
+        f"BESS {miglior_config['Target_BESS']} GWh, Nuc {miglior_config['Target_Nuc']} GW)*"
     )
 
-    st.subheader("📊 Frontiera di Pareto: Costi vs Emissioni (CUMULATI su 30 Anni)")
+    st.subheader("📊 Frontiera di Pareto (Usa l'effettivo Nucleare costruito)")
     fig = px.scatter(
-        df_plot, x='Carbon_Intensity_30y', y='Costo_Medio_30y', color='Target_Nuc',
-        color_continuous_scale='Plasma', hover_data=['Target_PV', 'Target_Wind', 'Target_BESS'],
+        df_plot, x='Carbon_Intensity_30y', y='Costo_Medio_30y', color='Reached_Nuc',
+        color_continuous_scale='Plasma', 
+        hover_data=['Reached_PV', 'Reached_Wind', 'Reached_BESS', 'Target_Nuc'],
         labels={
-            'Carbon_Intensity_30y': "Carbon Intensity Media 30 Anni (gCO₂/kWh)",
-            'Costo_Medio_30y': "Costo Medio Bolletta 30 Anni (€/MWh)",
-            'Target_Nuc': "Nucleare (GW)"
+            'Carbon_Intensity_30y': f"Carbon Intensity Media su {anni_transizione} Anni (gCO₂/kWh)",
+            'Costo_Medio_30y': f"Costo Medio Bolletta su {anni_transizione} Anni (€/MWh)",
+            'Reached_Nuc': "Nucleare Raggiunto (GW)"
         }
     )
+    
     fig.add_trace(go.Scatter(
         x=[miglior_config['Carbon_Intensity_30y']], y=[miglior_config['Costo_Medio_30y']],
         mode='markers', marker=dict(color='lime', size=15, line=dict(color='black', width=2)),
         name='Ottimo Scelto'
     ))
+    
+    # Trasparenza aggiunta per mostrare i punti sovrapposti
+    fig.update_traces(marker=dict(opacity=0.6, line=dict(width=0.5, color='white')))
     fig.update_layout(xaxis_autorange="reversed", height=500)
     st.plotly_chart(fig, use_container_width=True)
 
@@ -439,21 +452,12 @@ try:
     
     storia_t = []
     pv_sq, wind_sq, nuc_sq, bess_sq = 40.0, 10.0, 0.0, 10.0
-    
-    # Helper python ricostruito per usare il Rate
-    def calc_cap_py_rate(anno, start_yr, start_v, tgt_v, rt, step=False):
-        if anno <= start_yr:
-            return start_v
-        v = start_v + (anno - start_yr) * rt
-        if v > tgt_v:
-            v = tgt_v
-        return np.floor(v) if step else v
 
     for anno in range(anni_transizione + 1):
-        pv_gw = calc_cap_py_rate(anno, t_start['pv'], pv_sq, miglior_config['Target_PV'], rate['pv'])
-        wind_gw = calc_cap_py_rate(anno, t_start['wind'], wind_sq, miglior_config['Target_Wind'], rate['wind'])
-        nuc_gw = calc_cap_py_rate(anno, t_start['nuc'], nuc_sq, miglior_config['Target_Nuc'], rate['nuc'], True)
-        bess_gwh = calc_cap_py_rate(anno, t_start['bess'], bess_sq, miglior_config['Target_BESS'], rate['bess'])
+        pv_gw = get_reached_capacity(anno, t_start['pv'], pv_sq, miglior_config['Target_PV'], rate['pv'])
+        wind_gw = get_reached_capacity(anno, t_start['wind'], wind_sq, miglior_config['Target_Wind'], rate['wind'])
+        nuc_gw = get_reached_capacity(anno, t_start['nuc'], nuc_sq, miglior_config['Target_Nuc'], rate['nuc'], True)
+        bess_gwh = get_reached_capacity(anno, t_start['bess'], bess_sq, miglior_config['Target_BESS'], rate['bess'])
         
         gas, _, _, _, _ = simula_rete_light_fast(
             array_pv, array_wind, array_fabbisogno, pv_gw*1000, wind_gw*1000, nuc_gw*1000, bess_gwh*1000,
@@ -463,9 +467,9 @@ try:
 
     df_t = pd.DataFrame(storia_t)
     fig2 = make_subplots(specs=[[{"secondary_y": True}]])
-    fig2.add_trace(go.Scatter(x=df_t['Anno'], y=df_t['PV_GW'], mode='lines', stackgroup='one', name='PV (GW)', fillcolor='gold'), secondary_y=False)
-    fig2.add_trace(go.Scatter(x=df_t['Anno'], y=df_t['Wind_GW'], mode='lines', stackgroup='one', name='Wind (GW)', fillcolor='lightskyblue'), secondary_y=False)
-    fig2.add_trace(go.Scatter(x=df_t['Anno'], y=df_t['Nuc_GW'], mode='lines', stackgroup='one', name='Nuc (GW)', fillcolor='mediumpurple'), secondary_y=False)
+    fig2.add_trace(go.Scatter(x=df_t['Anno'], y=df_t['PV_GW'], mode='lines', stackgroup='one', name='PV Raggiunto (GW)', fillcolor='gold'), secondary_y=False)
+    fig2.add_trace(go.Scatter(x=df_t['Anno'], y=df_t['Wind_GW'], mode='lines', stackgroup='one', name='Wind Raggiunto (GW)', fillcolor='lightskyblue'), secondary_y=False)
+    fig2.add_trace(go.Scatter(x=df_t['Anno'], y=df_t['Nuc_GW'], mode='lines', stackgroup='one', name='Nuc Raggiunto (GW)', fillcolor='mediumpurple'), secondary_y=False)
     fig2.add_trace(go.Scatter(x=df_t['Anno'], y=df_t['Gas_TWh'], mode='lines+markers', name='Gas (TWh/anno)', line=dict(color='red', width=3)), secondary_y=True)
     
     fig2.update_layout(hovermode="x unified", height=450)
