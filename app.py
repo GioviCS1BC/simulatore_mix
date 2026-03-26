@@ -10,7 +10,7 @@ from numba import njit
 # ==========================================
 # CONFIGURAZIONE PAGINA
 # ==========================================
-st.set_page_config(page_title="Simulatore Mix Energetico PRO", layout="wide")
+st.set_page_config(page_title="Simulatore Energetico", layout="wide")
 
 # ==========================================
 # PESI GEOGRAFICI CURVE MEDIE
