@@ -127,7 +127,6 @@ def simula_rete_light_fast(produzione_pv, produzione_wind, fabbisogno,
                            pv_mw, wind_mw, nucleare_mw, bess_mwh, bess_mw, gas_mw,
                            hydro_fluente_mw, hydro_bacino_mw, hydro_bacino_max_mwh, hydro_inflow_mw,
                            efficienza_bess=0.9):
-    # Simulazione oraria per un singolo anno (uguale a prima)
     ore = len(fabbisogno)
     soc_corrente = bess_mwh * 0.5
     soc_hydro = hydro_bacino_max_mwh * 0.5
@@ -196,21 +195,19 @@ def calcola_capacita_anno(anno, start_yr, end_yr, val_start, val_target, step_wi
 def simula_scenario_30_anni(prod_pv, prod_wind, fabbisogno, 
                             pv_target, wind_target, nuc_target, bess_target,
                             pv_sq, wind_sq, nuc_sq, bess_sq,
-                            t_start, t_end, anni_transizione=30):
-    # Restituisce i totali CUMULATI per i 30 anni di transizione
+                            t_start_numba, t_end_numba, anni_transizione=30):
     gas_tot, def_tot, over_tot, hydro_disp_tot, bess_out_tot = 0.0, 0.0, 0.0, 0.0, 0.0
     pv_gen_tot, wind_gen_tot, nuc_gen_tot = 0.0, 0.0, 0.0
-    bess_installed_tot_mwh_years = 0.0 # Per calcolare l'OPEX cumulato
-    vre_gen_tot = 0.0 # Per calcolare i costi di integrazione
+    bess_installed_tot_mwh_years = 0.0
+    vre_gen_tot = 0.0 
     
     ore_anno = len(fabbisogno)
     
     for anno in range(anni_transizione + 1):
-        # Capacità in GW per questo specifico anno
-        pv_gw = calcola_capacita_anno(anno, t_start['pv'], t_end['pv'], pv_sq, pv_target)
-        wind_gw = calcola_capacita_anno(anno, t_start['wind'], t_end['wind'], wind_sq, wind_target)
-        nuc_gw = calcola_capacita_anno(anno, t_start['nuc'], t_end['nuc'], nuc_sq, nuc_target, step_wise=True)
-        bess_gwh = calcola_capacita_anno(anno, t_start['bess'], t_end['bess'], bess_sq, bess_target)
+        pv_gw = calcola_capacita_anno(anno, t_start_numba['pv'], t_end_numba['pv'], pv_sq, pv_target)
+        wind_gw = calcola_capacita_anno(anno, t_start_numba['wind'], t_end_numba['wind'], wind_sq, wind_target)
+        nuc_gw = calcola_capacita_anno(anno, t_start_numba['nuc'], t_end_numba['nuc'], nuc_sq, nuc_target, step_wise=True)
+        bess_gwh = calcola_capacita_anno(anno, t_start_numba['bess'], t_end_numba['bess'], bess_sq, bess_target)
         
         gas, dfc, ovr, hyd, bss = simula_rete_light_fast(
             prod_pv, prod_wind, fabbisogno,
@@ -236,14 +233,21 @@ def simula_scenario_30_anni(prod_pv, prod_wind, fabbisogno,
             pv_gen_tot, wind_gen_tot, nuc_gen_tot, bess_installed_tot_mwh_years, vre_gen_tot)
 
 @st.cache_data
-def simula_motore_30_anni(array_pv, array_wind, array_fabbisogno, t_start, t_end, anni_transizione=30):
-    # Griglia scenari (leggermente ridotta per garantire UI real-time, totale 256 scenari)
+def simula_motore_30_anni(array_pv, array_wind, array_fabbisogno, t_start_py, t_end_py, anni_transizione=30):
+    from numba.core import types
+    from numba.typed import Dict
+
+    # Convertiamo i dizionari Python in dizionari Numba DENTRO la funzione cachata
+    d_start = Dict.empty(key_type=types.unicode_type, value_type=types.float64)
+    d_end = Dict.empty(key_type=types.unicode_type, value_type=types.float64)
+    for k, v in t_start_py.items(): d_start[k] = float(v)
+    for k, v in t_end_py.items(): d_end[k] = float(v)
+
     scenari_pv_gw = [40, 70, 100, 150]
     scenari_wind_gw = [10, 30, 60, 90]
     scenari_bess_gwh = [10, 50, 150, 300]
     scenari_nuc_gw = [0, 5, 10, 20]
 
-    # Status Quo di partenza (anno 0)
     pv_sq, wind_sq, nuc_sq, bess_sq = 40.0, 10.0, 0.0, 10.0
     risultati_30y = []
 
@@ -256,7 +260,7 @@ def simula_motore_30_anni(array_pv, array_wind, array_fabbisogno, t_start, t_end
                         array_pv, array_wind, array_fabbisogno,
                         float(pv), float(wind), float(nuc), float(bess),
                         pv_sq, wind_sq, nuc_sq, bess_sq,
-                        t_start, t_end, anni_transizione
+                        d_start, d_end, anni_transizione
                     )
                     
                     risultati_30y.append({
@@ -270,13 +274,11 @@ def simula_motore_30_anni(array_pv, array_wind, array_fabbisogno, t_start, t_end
     return risultati_30y
 
 def applica_economia_cumulata(risultati_30y, fabbisogno_annuo_mwh, mercato, anni_transizione=30):
-    # Fabbisogno totale sui 30 anni
     fabbisogno_cumulato = fabbisogno_annuo_mwh * (anni_transizione + 1)
     hydro_fluente_cumulato = 2500.0 * 8760 * (anni_transizione + 1)
     
     LCA_EMISSIONI = {'pv': 45.0, 'wind': 11.0, 'hydro': 24.0, 'nuc': 12.0, 'bess': 50.0, 'gas': 550.0}
     
-    # Costo annualizzato BESS (CAPEX spalmato + OPEX annuo)
     wacc = mercato.get('wacc_bess', 0.05)
     vita = mercato.get('bess_vita', 15)
     opex_f_rate = mercato.get('bess_opex_fix', 0.015)
@@ -285,7 +287,6 @@ def applica_economia_cumulata(risultati_30y, fabbisogno_annuo_mwh, mercato, anni
 
     storia = []
     for r in risultati_30y:
-        # Costi cumulati (somma dei 30 anni)
         costo_pv_tot = r['pv_gen_mwh'] * mercato['cfd_pv']
         costo_wind_tot = r['wind_gen_mwh'] * mercato['cfd_wind']
         costo_nuc_tot = r['nuc_gen_mwh'] * mercato['cfd_nuc']
@@ -294,10 +295,9 @@ def applica_economia_cumulata(risultati_30y, fabbisogno_annuo_mwh, mercato, anni
         costo_bess_tot = r['bess_inst_years'] * costo_bess_annuo_per_mwh
         costo_blackout_tot = r['deficit_mwh'] * mercato['voll']
         
-        # Integrazione di rete (semplificata sui totali)
         quota_vre_media = r['vre_gen_tot'] / fabbisogno_cumulato
         costo_base_integr = mercato['costo_base_integrazione'] * (quota_vre_media ** 2)
-        costo_sistema_totale = r['vre_gen_tot'] * costo_base_integr # Semplificazione: no sconto bess qui
+        costo_sistema_totale = r['vre_gen_tot'] * costo_base_integr
         
         costo_totale_30y = (costo_pv_tot + costo_wind_tot + costo_nuc_tot + costo_hydro_tot + 
                             costo_gas_tot + costo_bess_tot + costo_blackout_tot + costo_sistema_totale)
@@ -305,7 +305,6 @@ def applica_economia_cumulata(risultati_30y, fabbisogno_annuo_mwh, mercato, anni
         costo_medio_bolletta = costo_totale_30y / fabbisogno_cumulato
         percentuale_gas = (r['gas_mwh'] / fabbisogno_cumulato) * 100
         
-        # Emissioni cumulate LCA
         emi_tot = (r['pv_gen_mwh'] * LCA_EMISSIONI['pv'] +
                    r['wind_gen_mwh'] * LCA_EMISSIONI['wind'] +
                    (hydro_fluente_cumulato + r['hydro_disp_mwh']) * LCA_EMISSIONI['hydro'] +
@@ -327,7 +326,6 @@ def applica_economia_cumulata(risultati_30y, fabbisogno_annuo_mwh, mercato, anni
         })
 
     df_risultati = pd.DataFrame(storia)
-    # Ottimo: minor emissione entro il +5% del costo minimo assoluto sui 30 anni
     min_costo = df_risultati['Costo_Medio_30y'].min()
     scenari_ok = df_risultati[df_risultati['Costo_Medio_30y'] <= min_costo * 1.05]
     miglior_config = scenari_ok.sort_values(by='Carbon_Intensity_30y').iloc[0].to_dict()
@@ -379,24 +377,16 @@ try:
         DEFAULT_PV_NORD_SHARE, DEFAULT_WIND_NORD_SHARE
     )
     
-    # Numba type casting arrays
     array_pv = df_completo['Fattore_Capacita_PV'].to_numpy(dtype=np.float64)
     array_wind = df_completo['Fattore_Capacita_Wind'].to_numpy(dtype=np.float64)
     array_fabbisogno = df_completo['Fabbisogno_MW'].to_numpy(dtype=np.float64)
     
-    # Crea una dict per Numba (necessita di un formato compatibile o tipi base, usiamo Numba Typed Dict o passiamo i parametri espansi)
-    # Per semplicità in Streamlit st.cache espandiamo il dizionario nei valori base:
-    t_start_numba = np.array([t_start['pv'], t_start['wind'], t_start['nuc'], t_start['bess']], dtype=np.float64)
-    
     with st.spinner("Calcolo di 30 anni per tutti gli scenari... (Veloce grazie a Numba)"):
-        # Chiamata al motore (usiamo i dict standard perché Numba riesce a gestire type deduction se wrappato bene, ma passiamo come Numba-safe array/dict)
-        from numba.core import types
-        from numba.typed import Dict
-        d_start, d_end = Dict.empty(key_type=types.unicode_type, value_type=types.float64), Dict.empty(key_type=types.unicode_type, value_type=types.float64)
-        for k,v in t_start.items(): d_start[k] = float(v)
-        for k,v in t_end.items(): d_end[k] = float(v)
-
-        risultati_30y = simula_motore_30_anni(array_pv, array_wind, array_fabbisogno, d_start, d_end, anni_transizione)
+        # Passiamo i dizionari Python puliti. Numba farà la conversione in modo sicuro all'interno.
+        risultati_30y = simula_motore_30_anni(
+            array_pv, array_wind, array_fabbisogno, 
+            t_start, t_end, anni_transizione
+        )
 
     fabbisogno_annuo_mwh = df_completo['Fabbisogno_MW'].sum()
     miglior_config, df_plot = applica_economia_cumulata(risultati_30y, fabbisogno_annuo_mwh, mercato, anni_transizione)
@@ -437,11 +427,9 @@ try:
     st.markdown("---")
     st.subheader("🛤️ Traiettoria dell'Ottimo e Consumo di Gas")
     
-    # Rigeneriamo i dati annuali dell'ottimo per plottare l'area chart
     storia_t = []
     pv_sq, wind_sq, nuc_sq, bess_sq = 40.0, 10.0, 0.0, 10.0
     
-    # Helper python per la UI (evitiamo Numba qui che è solo UI)
     def calc_cap_py(anno, s, e, start_v, tgt_v, step=False):
         if e <= s: e = s + 1
         if anno <= s: return start_v
@@ -455,7 +443,6 @@ try:
         nuc_gw = calc_cap_py(anno, t_start['nuc'], t_end['nuc'], nuc_sq, miglior_config['Target_Nuc'], True)
         bess_gwh = calc_cap_py(anno, t_start['bess'], t_end['bess'], bess_sq, miglior_config['Target_BESS'])
         
-        # Simulazione veloce Python solo per l'ottimo, per plottare il grafico
         gas, _, _, _, _ = simula_rete_light_fast(
             array_pv, array_wind, array_fabbisogno, pv_gw*1000, wind_gw*1000, nuc_gw*1000, bess_gwh*1000,
             50000, 50000, 2500, 12000, 5000000, 2850
