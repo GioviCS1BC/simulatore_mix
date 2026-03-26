@@ -10,7 +10,7 @@ from numba import njit
 # ==========================================
 # CONFIGURAZIONE PAGINA
 # ==========================================
-st.set_page_config(page_title="Simulatore Mix Energetico PRO - Pareto Cumulato", layout="wide")
+st.set_page_config(page_title="Simulatore Mix Energetico PRO", layout="wide")
 
 # ==========================================
 # PESI GEOGRAFICI CURVE MEDIE
@@ -235,7 +235,7 @@ def simula_scenario_30_anni(prod_pv, prod_wind, fabbisogno,
             pv_gen_tot, wind_gen_tot, nuc_gen_tot, bess_installed_tot_mwh_years, vre_gen_tot)
 
 # ==========================================
-# 3. HELPER PYTHON E MOTORE SCENARI (GRIGLIA DINAMICA)
+# 3. HELPER PYTHON E MOTORE SCENARI
 # ==========================================
 def get_reached_capacity(anno_fine, start_yr, val_start, val_target, rate, step_wise=False):
     if anno_fine <= start_yr:
@@ -252,18 +252,14 @@ def simula_motore_30_anni(array_pv, array_wind, array_fabbisogno, t_start_py, ra
     from numba.core import types
     from numba.typed import Dict
 
-    # Conversione per evitare errori di hash in Streamlit
     d_start = Dict.empty(key_type=types.unicode_type, value_type=types.float64)
     d_rate = Dict.empty(key_type=types.unicode_type, value_type=types.float64)
     for k, v in t_start_py.items(): d_start[k] = float(v)
     for k, v in rate_py.items(): d_rate[k] = float(v)
 
     pv_sq, wind_sq, nuc_sq, bess_sq = 40.0, 10.0, 0.0, 10.0
-    
-    # ---------------------------------------------------------
-    # NOVITÀ: GRIGLIA SCENARI DINAMICA
-    # Calcoliamo il massimo fisicamente raggiungibile nell'orizzonte scelto
-    # ---------------------------------------------------------
+
+    # GRIGLIA AD ANCORAGGI FISSI
     def max_reach(sq, limit, t_start, rate):
         active_years = max(0, anni_transizione - t_start)
         return min(limit, sq + (active_years * rate))
@@ -273,19 +269,6 @@ def simula_motore_30_anni(array_pv, array_wind, array_fabbisogno, t_start_py, ra
     max_bess = max_reach(bess_sq, 300.0, t_start_py['bess'], rate_py['bess'])
     max_nuc = np.floor(max_reach(nuc_sq, 20.0, t_start_py['nuc'], rate_py['nuc']))
 
-    # ---------------------------------------------------------
-    # NOVITÀ: GRIGLIA AD ANCORAGGI FISSI (No Effetto Fisarmonica)
-    # ---------------------------------------------------------
-    def max_reach(sq, limit, t_start, rate):
-        active_years = max(0, anni_transizione - t_start)
-        return min(limit, sq + (active_years * rate))
-
-    max_pv = max_reach(pv_sq, 150.0, t_start_py['pv'], rate_py['pv'])
-    max_wind = max_reach(wind_sq, 90.0, t_start_py['wind'], rate_py['wind'])
-    max_bess = max_reach(bess_sq, 300.0, t_start_py['bess'], rate_py['bess'])
-    max_nuc = np.floor(max_reach(nuc_sq, 20.0, t_start_py['nuc'], rate_py['nuc']))
-
-    # Usa ancore fisse, e aggiunge il "massimo" solo come tetto finale
     def get_valid_targets(sq, max_val, base_targets):
         valid = [float(sq)]
         for t in base_targets:
@@ -307,7 +290,6 @@ def simula_motore_30_anni(array_pv, array_wind, array_fabbisogno, t_start_py, ra
             for bess in scenari_bess_gwh:
                 for nuc in scenari_nuc_gw:
                     
-                    # Dato che la griglia è dinamica, il Target è ora sempre raggiungibile!
                     r_pv = get_reached_capacity(anni_transizione, t_start_py['pv'], pv_sq, float(pv), rate_py['pv'])
                     r_wind = get_reached_capacity(anni_transizione, t_start_py['wind'], wind_sq, float(wind), rate_py['wind'])
                     r_nuc = get_reached_capacity(anni_transizione, t_start_py['nuc'], nuc_sq, float(nuc), rate_py['nuc'], True)
@@ -370,50 +352,68 @@ def applica_economia_cumulata(risultati_30y, fabbisogno_annuo_mwh, mercato, anni
                    r['bess_scarica_mwh'] * LCA_EMISSIONI['bess'] +
                    r['gas_mwh'] * LCA_EMISSIONI['gas'])
         
+        # Stima del curtailment in Euro (Media tra i CfD pagati alla fonte)
+        cfd_medio_vre = (mercato['cfd_pv'] + mercato['cfd_wind']) / 2
+        valore_spreco_eur = r['overgen_mwh'] * cfd_medio_vre
+
         storia.append({
             'Configurazione': f"{r['Reached_PV']}P|{r['Reached_Wind']}W|{r['Reached_BESS']}B|{r['Reached_Nuc']}N",
             'Target_PV': r['Target_PV'], 'Target_Wind': r['Target_Wind'], 'Target_BESS': r['Target_BESS'], 'Target_Nuc': r['Target_Nuc'],
             'Reached_PV': r['Reached_PV'], 'Reached_Wind': r['Reached_Wind'], 'Reached_BESS': r['Reached_BESS'], 'Reached_Nuc': r['Reached_Nuc'],
             'Costo_Medio_30y': costo_medio_bolletta,
+            'Spesa_Totale_Mld_30y': costo_totale_30y / 1e9,
             'Carbon_Intensity_30y': emi_tot / fabbisogno_cumulato,
             'Gas_%_30y': percentuale_gas,
             'Overgen_TWh_30y': r['overgen_mwh'] / 1e6,
-            'Gas_Mld_30y': costo_gas_tot / 1e9
+            'Gas_Mld_30y': costo_gas_tot / 1e9,
+            'Valore_Spreco_Mld_30y': valore_spreco_eur / 1e9
         })
 
     df_risultati = pd.DataFrame(storia)
-    
-    # RIMOZIONE DOPPIONI E SCENARI IDENTICI
-    df_risultati = df_risultati.drop_duplicates(
-        subset=['Reached_PV', 'Reached_Wind', 'Reached_BESS', 'Reached_Nuc']
-    )
 
-    # --- NUOVA LOGICA DI SCELTA DELL'OTTIMO: PUNTO UTOPICO ---
-    
-    # 1. Troviamo i minimi e massimi per normalizzare la scala (da 0 a 1)
+    # ---------------------------------------------------------
+    # CALCOLO RISPARMIO RISPETTO AL CASO 0 (Status Quo)
+    # ---------------------------------------------------------
+    caso_0 = df_risultati[
+        (df_risultati['Target_PV'] == 40.0) & 
+        (df_risultati['Target_Wind'] == 10.0) & 
+        (df_risultati['Target_BESS'] == 10.0) & 
+        (df_risultati['Target_Nuc'] == 0.0)
+    ]
+    costo_caso_0 = caso_0.iloc[0]['Spesa_Totale_Mld_30y'] if not caso_0.empty else df_risultati['Spesa_Totale_Mld_30y'].max()
+    df_risultati['Risparmio_Mld_30y'] = costo_caso_0 - df_risultati['Spesa_Totale_Mld_30y']
+
+    # ---------------------------------------------------------
+    # RIMOZIONE TARGET FANTASMA E SCENARI IDENTICI
+    # ---------------------------------------------------------
+    df_risultati['Sogni_Infranti'] = (
+        (df_risultati['Target_PV'] - df_risultati['Reached_PV']) +
+        (df_risultati['Target_Wind'] - df_risultati['Reached_Wind']) +
+        (df_risultati['Target_BESS'] - df_risultati['Reached_BESS']) +
+        (df_risultati['Target_Nuc'] - df_risultati['Reached_Nuc'])
+    )
+    df_risultati = df_risultati.sort_values('Sogni_Infranti').drop_duplicates(
+        subset=['Reached_PV', 'Reached_Wind', 'Reached_BESS', 'Reached_Nuc']
+    ).drop(columns=['Sogni_Infranti'])
+
+    # ---------------------------------------------------------
+    # SCELTA DELL'OTTIMO: METODO DEL PUNTO UTOPICO
+    # ---------------------------------------------------------
     min_c = df_risultati['Costo_Medio_30y'].min()
     max_c = df_risultati['Costo_Medio_30y'].max()
     min_e = df_risultati['Carbon_Intensity_30y'].min()
     max_e = df_risultati['Carbon_Intensity_30y'].max()
 
-    # Preveniamo divisioni per zero nel caso estremo in cui ci sia un solo scenario
     if max_c == min_c: max_c = min_c + 1
     if max_e == min_e: max_e = min_e + 1
 
-    # 2. Normalizziamo Costi ed Emissioni
     df_risultati['Norm_Cost'] = (df_risultati['Costo_Medio_30y'] - min_c) / (max_c - min_c)
     df_risultati['Norm_Emi'] = (df_risultati['Carbon_Intensity_30y'] - min_e) / (max_e - min_e)
-
-    # 3. Calcoliamo la distanza dal Punto Utopico ideale (0 Costi, 0 Emissioni)
-    # Usiamo il teorema di Pitagora: radice quadrata della somma dei quadrati
     df_risultati['Distanza_Utopia'] = np.sqrt(df_risultati['Norm_Cost']**2 + df_risultati['Norm_Emi']**2)
 
-    # 4. Il miglior compromesso assoluto è quello con la distanza minore!
     miglior_config = df_risultati.sort_values(by='Distanza_Utopia').iloc[0].to_dict()
-    
-    # Pulizia colonne di servizio prima di restituire il dataframe
     df_risultati = df_risultati.drop(columns=['Norm_Cost', 'Norm_Emi', 'Distanza_Utopia'])
-
+    
     return miglior_config, df_risultati
 
 # ==========================================
@@ -476,18 +476,27 @@ try:
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Costo Medio Cumulato", f"{miglior_config['Costo_Medio_30y']:.1f} €/MWh")
     col2.metric("Carbon Intensity Media", f"{miglior_config['Carbon_Intensity_30y']:.1f} gCO₂/kWh")
-    col3.metric("Spesa Gas Cumulata", f"{miglior_config['Gas_Mld_30y']:.1f} Mld €")
-    col4.metric("Spreco Rete Cumulato", f"{miglior_config['Overgen_TWh_30y']:.1f} TWh")
+    
+    # Metriche sui Miliardi!
+    col3.metric(
+        "Risparmio vs Caso 0", 
+        f"+{miglior_config['Risparmio_Mld_30y']:.1f} Mld €", 
+        help="Miliardi di Euro risparmiati sull'intero sistema rispetto a non costruire nulla (Status Quo)."
+    )
+    col4.metric(
+        "Costo Spreco (Curtailment)", 
+        f"{miglior_config['Valore_Spreco_Mld_30y']:.1f} Mld €", 
+        help=f"Pari a {miglior_config['Overgen_TWh_30y']:.1f} TWh buttati, valorizzati al CfD medio."
+    )
 
     st.markdown(
         f"**Capacità effettivamente installata:** {miglior_config['Reached_PV']} GW Solare | "
         f"{miglior_config['Reached_Wind']} GW Eolico | {miglior_config['Reached_BESS']} GWh Batterie | "
         f"{miglior_config['Reached_Nuc']} GW Nucleare\n\n"
-        f"*(Target teorico che guidava questo scenario: FV {miglior_config['Target_PV']} GW, Eol {miglior_config['Target_Wind']} GW, "
-        f"BESS {miglior_config['Target_BESS']} GWh, Nuc {miglior_config['Target_Nuc']} GW)*"
+        f"*(Spesa Totale del sistema nel periodo: {miglior_config['Spesa_Totale_Mld_30y']:.1f} Mld € | Target che guidava questo scenario: FV {miglior_config['Target_PV']}, Eol {miglior_config['Target_Wind']}, BESS {miglior_config['Target_BESS']}, Nuc {miglior_config['Target_Nuc']})*"
     )
 
-    st.subheader("📊 Frontiera di Pareto")
+    st.subheader("📊 Frontiera di Pareto (Usa l'effettivo Nucleare costruito)")
     fig = px.scatter(
         df_plot, x='Carbon_Intensity_30y', y='Costo_Medio_30y', color='Reached_Nuc',
         color_continuous_scale='Plasma', 
