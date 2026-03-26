@@ -431,14 +431,14 @@ col_t1, col_t2 = st.sidebar.columns(2)
 t_start = {
     'pv': col_t1.number_input("Inizio PV (Anno)", 0, 40, 1),
     'wind': col_t1.number_input("Inizio Eol", 0, 40, 3),
-    'bess': col_t1.number_input("Inizio BESS", 0, 40, 1),
-    'nuc': col_t1.number_input("Inizio Nuc", 0, 40, 12)
+    'bess': col_t1.number_input("Inizio BESS", 0, 40, 2),
+    'nuc': col_t1.number_input("Inizio Nuc", 0, 40, 15)
 }
 rate = {
     'pv': col_t2.number_input("Rate PV (GW/anno)", 0.5, 20.0, 6.0, step=0.5),
     'wind': col_t2.number_input("Rate Eol (GW/anno)", 0.1, 10.0, 2.0, step=0.1),
-    'bess': col_t2.number_input("Rate BESS (GWh/a)", 0.5, 50.0, 10.0, step=1.0),
-    'nuc': col_t2.number_input("Rate Nuc (GW/anno)", 0.5, 5.0, 1.5, step=0.5)
+    'bess': col_t2.number_input("Rate BESS (GWh/a)", 0.5, 50.0, 5.0, step=1.0),
+    'nuc': col_t2.number_input("Rate Nuc (GW/anno)", 0.2, 3.0, 1, step=0.1)
 }
 
 st.sidebar.header("⚙️ Mercato & LCA")
@@ -446,7 +446,7 @@ mercato = {
     'cfd_pv': st.sidebar.slider("CfD PV (€/MWh)", 20.0, 150.0, 60.0, step=5.0),
     'cfd_wind': st.sidebar.slider("CfD Wind (€/MWh)", 30.0, 150.0, 80.0, step=5.0),
     'cfd_nuc': st.sidebar.slider("CfD Nuc (€/MWh)", 50.0, 200.0, 120.0, step=5.0),
-    'bess_capex': st.sidebar.slider("CAPEX BESS (€/MWh)", 50000.0, 300000.0, 100000.0, step=10000.0),
+    'bess_capex': st.sidebar.slider("CAPEX BESS (€/MWh)", 50000.0, 300000.0, 120000.0, step=10000.0),
     'wacc_bess': 0.05, 'bess_opex_fix': 0.015, 'bess_vita': 15,
     'gas_eur_mwh': st.sidebar.slider("Gas (€/MWh)", 30.0, 300.0, 130.0, step=10.0),
     'costo_base_integrazione': 10.0, 'voll': 3000.0
