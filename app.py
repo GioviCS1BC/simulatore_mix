@@ -438,7 +438,7 @@ rate = {
     'pv': col_t2.number_input("Rate PV (GW/anno)", 0.5, 20.0, 6.0, step=0.5),
     'wind': col_t2.number_input("Rate Eol (GW/anno)", 0.1, 10.0, 2.0, step=0.1),
     'bess': col_t2.number_input("Rate BESS (GWh/a)", 0.5, 50.0, 5.0, step=1.0),
-    'nuc': col_t2.number_input("Rate Nuc (GW/anno)", 0.2, 3.0, 1, step=0.1)
+    'nuc': col_t2.number_input("Rate Nuc (GW/anno)", 0.2, 3.0, 1.0, step=0.1)
 }
 
 st.sidebar.header("⚙️ Mercato & LCA")
