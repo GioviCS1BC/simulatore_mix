@@ -10,7 +10,7 @@ from numba import njit
 # ==========================================
 # CONFIGURAZIONE PAGINA
 # ==========================================
-st.set_page_config(page_title="Simulatore Mix Energetico", layout="wide")
+st.set_page_config(page_title="Simulatore Mix Energetico PRO", layout="wide")
 
 # ==========================================
 # PESI GEOGRAFICI CURVE MEDIE
@@ -132,7 +132,7 @@ def simula_rete_light_fast(produzione_pv, produzione_wind, fabbisogno,
     soc_hydro = hydro_bacino_max_mwh * 0.5
     prod_pv_array = produzione_pv * pv_mw
     prod_wind_array = produzione_wind * wind_mw
-    potenza_nucleare_costante = nucleare_mw * 0.90
+    potenza_nucleare_costante = nucleare_mw
     gas_usato_totale, deficit_totale, overgen_totale = 0.0, 0.0, 0.0
     hydro_dispatched_totale, bess_scarica_totale = 0.0, 0.0
     sqrt_eff = np.sqrt(efficienza_bess)
@@ -211,10 +211,13 @@ def simula_scenario_30_anni(prod_pv, prod_wind, fabbisogno,
         nuc_gw = calcola_capacita_anno_rate(anno, t_start_numba['nuc'], nuc_sq, nuc_target, rate_numba['nuc'], step_wise=True)
         bess_gwh = calcola_capacita_anno_rate(anno, t_start_numba['bess'], bess_sq, bess_target, rate_numba['bess'])
         
+        # --- LIMITE C-RATE 0.5 ---
+        bess_mw = bess_gwh * 1000.0 * 0.5
+
         gas, dfc, ovr, hyd, bss = simula_rete_light_fast(
             prod_pv, prod_wind, fabbisogno,
             pv_gw * 1000.0, wind_gw * 1000.0, nuc_gw * 1000.0, bess_gwh * 1000.0, 
-            50000.0, 50000.0, 2500.0, 12000.0, 5000000.0, 2850.0
+            bess_mw, 50000.0, 2500.0, 12000.0, 5000000.0, 2850.0
         )
         
         gas_tot += gas
@@ -259,7 +262,6 @@ def simula_motore_30_anni(array_pv, array_wind, array_fabbisogno, t_start_py, ra
 
     pv_sq, wind_sq, nuc_sq, bess_sq = 40.0, 10.0, 0.0, 10.0
 
-    # GRIGLIA AD ANCORAGGI FISSI
     def max_reach(sq, limit, t_start, rate):
         active_years = max(0, anni_transizione - t_start)
         return min(limit, sq + (active_years * rate))
@@ -332,7 +334,11 @@ def applica_economia_cumulata(risultati_30y, fabbisogno_annuo_mwh, mercato, anni
         costo_nuc_tot = r['nuc_gen_mwh'] * mercato['cfd_nuc']
         costo_hydro_tot = (hydro_fluente_cumulato + r['hydro_disp_mwh']) * mercato['gas_eur_mwh']
         costo_gas_tot = r['gas_mwh'] * mercato['gas_eur_mwh']
-        costo_bess_tot = r['bess_inst_years'] * costo_bess_annuo_per_mwh
+        
+        # --- OVRSIZING BATTERIE (+20%) ---
+        bess_nominale_acquistato = r['bess_inst_years'] * 1.20
+        costo_bess_tot = bess_nominale_acquistato * costo_bess_annuo_per_mwh
+
         costo_blackout_tot = r['deficit_mwh'] * mercato['voll']
         
         quota_vre_media = r['vre_gen_tot'] / fabbisogno_cumulato
@@ -352,7 +358,6 @@ def applica_economia_cumulata(risultati_30y, fabbisogno_annuo_mwh, mercato, anni
                    r['bess_scarica_mwh'] * LCA_EMISSIONI['bess'] +
                    r['gas_mwh'] * LCA_EMISSIONI['gas'])
         
-        # Stima del curtailment in Euro (Media tra i CfD pagati alla fonte)
         cfd_medio_vre = (mercato['cfd_pv'] + mercato['cfd_wind']) / 2
         valore_spreco_eur = r['overgen_mwh'] * cfd_medio_vre
 
@@ -371,9 +376,6 @@ def applica_economia_cumulata(risultati_30y, fabbisogno_annuo_mwh, mercato, anni
 
     df_risultati = pd.DataFrame(storia)
 
-    # ---------------------------------------------------------
-    # CALCOLO RISPARMIO RISPETTO AL CASO 0 (Status Quo)
-    # ---------------------------------------------------------
     caso_0 = df_risultati[
         (df_risultati['Target_PV'] == 40.0) & 
         (df_risultati['Target_Wind'] == 10.0) & 
@@ -383,9 +385,6 @@ def applica_economia_cumulata(risultati_30y, fabbisogno_annuo_mwh, mercato, anni
     costo_caso_0 = caso_0.iloc[0]['Spesa_Totale_Mld_30y'] if not caso_0.empty else df_risultati['Spesa_Totale_Mld_30y'].max()
     df_risultati['Risparmio_Mld_30y'] = costo_caso_0 - df_risultati['Spesa_Totale_Mld_30y']
 
-    # ---------------------------------------------------------
-    # RIMOZIONE TARGET FANTASMA E SCENARI IDENTICI
-    # ---------------------------------------------------------
     df_risultati['Sogni_Infranti'] = (
         (df_risultati['Target_PV'] - df_risultati['Reached_PV']) +
         (df_risultati['Target_Wind'] - df_risultati['Reached_Wind']) +
@@ -396,9 +395,6 @@ def applica_economia_cumulata(risultati_30y, fabbisogno_annuo_mwh, mercato, anni
         subset=['Reached_PV', 'Reached_Wind', 'Reached_BESS', 'Reached_Nuc']
     ).drop(columns=['Sogni_Infranti'])
 
-    # ---------------------------------------------------------
-    # SCELTA DELL'OTTIMO: METODO DEL PUNTO UTOPICO
-    # ---------------------------------------------------------
     min_c = df_risultati['Costo_Medio_30y'].min()
     max_c = df_risultati['Costo_Medio_30y'].max()
     min_e = df_risultati['Carbon_Intensity_30y'].min()
@@ -477,13 +473,12 @@ try:
     col1.metric("Costo Medio Cumulato", f"{miglior_config['Costo_Medio_30y']:.1f} €/MWh")
     col2.metric("Carbon Intensity Media", f"{miglior_config['Carbon_Intensity_30y']:.1f} gCO₂/kWh")
     
-    # Metriche sui Miliardi!
     col3.metric(
         "Risparmio vs Caso 0", 
         f"+{miglior_config['Risparmio_Mld_30y']:.1f} Mld €", 
         help="Miliardi di Euro risparmiati sull'intero sistema rispetto a non costruire nulla (Status Quo)."
     )
-
+    
     st.markdown(
         f"**Capacità effettivamente installata:** {miglior_config['Reached_PV']} GW Solare | "
         f"{miglior_config['Reached_Wind']} GW Eolico | {miglior_config['Reached_BESS']} GWh Batterie | "
@@ -526,9 +521,12 @@ try:
         nuc_gw = get_reached_capacity(anno, t_start['nuc'], nuc_sq, miglior_config['Target_Nuc'], rate['nuc'], True)
         bess_gwh = get_reached_capacity(anno, t_start['bess'], bess_sq, miglior_config['Target_BESS'], rate['bess'])
         
+        # --- APPLICAZIONE C-RATE ANCHE NELLA TRAIETTORIA UI ---
+        bess_mw = bess_gwh * 1000.0 * 0.5
+        
         gas, _, _, _, _ = simula_rete_light_fast(
             array_pv, array_wind, array_fabbisogno, pv_gw*1000, wind_gw*1000, nuc_gw*1000, bess_gwh*1000,
-            50000, 50000, 2500, 12000, 5000000, 2850
+            bess_mw, 50000, 2500, 12000, 5000000, 2850
         )
         storia_t.append({'Anno': anno, 'PV_GW': pv_gw, 'Wind_GW': wind_gw, 'Nuc_GW': nuc_gw, 'Gas_TWh': gas/1e6})
 
@@ -541,11 +539,8 @@ try:
     
     fig2.update_layout(hovermode="x unified", height=450)
     fig2.update_yaxes(title_text="Capacità Installata (GW)", secondary_y=False)
-    
-    # Range dinamico corretto per evitare bug se il gas è 0
     max_gas = max(1.0, df_t['Gas_TWh'].max() * 1.2)
     fig2.update_yaxes(title_text="Gas Bruciato (TWh)", secondary_y=True, range=[0, max_gas])
-    
     st.plotly_chart(fig2, use_container_width=True)
 
 except Exception as e:
