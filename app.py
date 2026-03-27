@@ -280,10 +280,10 @@ def simula_motore_30_anni(array_pv, array_wind, array_fabbisogno, t_start_py, ra
             valid.append(float(max_val))
         return sorted(list(set([round(v, 1) for v in valid])))
 
-    scenari_pv_gw = get_valid_targets(pv_sq, max_pv, [70, 100, 150])
-    scenari_wind_gw = get_valid_targets(wind_sq, max_wind, [30, 60, 90])
-    scenari_bess_gwh = get_valid_targets(bess_sq, max_bess, [50, 150, 300])
-    scenari_nuc_gw = get_valid_targets(nuc_sq, max_nuc, [5, 10, 20])
+    scenari_pv_gw = get_valid_targets(pv_sq, max_pv, [70, 100, 150,100])
+    scenari_wind_gw = get_valid_targets(wind_sq, max_wind, [30, 60, 90,120])
+    scenari_bess_gwh = get_valid_targets(bess_sq, max_bess, [50,100, 150, 300])
+    scenari_nuc_gw = get_valid_targets(nuc_sq, max_nuc, [5, 10,15, 20])
 
     risultati_30y = []
 
