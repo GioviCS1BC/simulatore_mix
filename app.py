@@ -10,7 +10,7 @@ from numba import njit
 # ==========================================
 # CONFIGURAZIONE PAGINA
 # ==========================================
-st.set_page_config(page_title="Simulatore Energetico", layout="wide")
+st.set_page_config(page_title="Simulatore Mix Energetico PRO", layout="wide")
 
 # ==========================================
 # PESI GEOGRAFICI CURVE MEDIE
@@ -483,7 +483,6 @@ try:
         f"+{miglior_config['Risparmio_Mld_30y']:.1f} Mld €", 
         help="Miliardi di Euro risparmiati sull'intero sistema rispetto a non costruire nulla (Status Quo)."
     )
-   
 
     st.markdown(
         f"**Capacità effettivamente installata:** {miglior_config['Reached_PV']} GW Solare | "
@@ -542,7 +541,11 @@ try:
     
     fig2.update_layout(hovermode="x unified", height=450)
     fig2.update_yaxes(title_text="Capacità Installata (GW)", secondary_y=False)
-    fig2.update_yaxes(title_text="Gas Bruciato (TWh)", secondary_y=True, range=[0, df_t['Gas_TWh'].max()*1.2])
+    
+    # Range dinamico corretto per evitare bug se il gas è 0
+    max_gas = max(1.0, df_t['Gas_TWh'].max() * 1.2)
+    fig2.update_yaxes(title_text="Gas Bruciato (TWh)", secondary_y=True, range=[0, max_gas])
+    
     st.plotly_chart(fig2, use_container_width=True)
 
 except Exception as e:
