@@ -161,7 +161,7 @@ def simula_rete_light_fast(produzione_pv, produzione_wind, fabbisogno,
 
     prod_pv_array = produzione_pv * pv_mw
     prod_wind_array = produzione_wind * wind_mw
-    potenza_nucleare_costante = nucleare_mw * 0.90
+    potenza_nucleare_costante = nucleare_mw * 1
 
     gas_usato_totale = 0.0
     deficit_totale = 0.0
